@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore SqlArchive.sln
+
+      - name: Build
+        run: dotnet build SqlArchive.sln -c Release --no-restore
+
+      - name: Unit tests
+        run: dotnet test tests/SqlArchive.Core.Tests -c Release --no-build --verbosity normal
+
+      # Un proyecto por línea: `dotnet pack` acepta uno solo, y nombrar dos falla con
+      # MSB1008 antes de empaquetar nada. SyncJob lo aprendió con la CI en rojo y el
+      # release a punto de fallar despues de la etiqueta.
+      - name: Pack
+        run: |
+          dotnet pack src/SqlArchive.Core/SqlArchive.Core.csproj -c Release -o ./artifacts
+          dotnet pack src/SqlArchive.Cli/SqlArchive.Cli.csproj -c Release -o ./artifacts
+
+  integration:
+    name: real archive against SQL Server
+    runs-on: ubuntu-latest
+
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: Str0ng!Passw0rd#CI
+        ports:
+          - 1433:1433
+
+    env:
+      SA_PASSWORD: Str0ng!Passw0rd#CI
+      SQLCMD: ./sqlcmd
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build
+        run: dotnet build SqlArchive.sln -c Release
+
+      # go-sqlcmd es un binario estatico: nada de imagenes cuyo nombre haya que
+      # adivinar, ni paquetes que instalar.
+      - name: Install sqlcmd
+        run: |
+          set -e
+          curl -sSL -o sqlcmd.tar.bz2 \
+            https://github.com/microsoft/go-sqlcmd/releases/download/v1.10.0/sqlcmd-linux-amd64.tar.bz2
+          tar -xjf sqlcmd.tar.bz2 sqlcmd
+          chmod +x sqlcmd
+          ./sqlcmd --version
+
+      # El contenedor se reporta sano antes de que SQL Server termine de arrancar. Se
+      # sondea de verdad, y si no levanta se MUESTRA el error y el log: un "never became
+      # reachable" a secas no deja diagnosticar nada.
+      - name: Wait for SQL Server
+        run: |
+          for i in $(seq 1 40); do
+            if $SQLCMD -S localhost,1433 -U sa -P "$SA_PASSWORD" -C -Q "SELECT 1" > /dev/null 2>&1; then
+              echo "SQL Server up after ${i} attempt(s)."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::SQL Server never became reachable. Last attempt:"
+          $SQLCMD -S localhost,1433 -U sa -P "$SA_PASSWORD" -C -Q "SELECT 1" || true
+          echo "--- service container logs ---"
+          docker ps -a
+          docker logs "$(docker ps -aq --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest | head -1)" || true
+          exit 1
+
+      - name: Live tests
+        env:
+          SQLARCHIVE_TEST_CONN: Server=localhost,1433;User Id=sa;Password=${{ env.SA_PASSWORD }};TrustServerCertificate=true;Encrypt=false
+        run: dotnet test tests/SqlArchive.IntegrationTests -c Release --no-build --verbosity normal

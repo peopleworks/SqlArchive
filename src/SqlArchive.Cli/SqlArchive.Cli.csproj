@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>sqlarchive</AssemblyName>
+    <RootNamespace>SqlArchive.Cli</RootNamespace>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <Description>Export a SQL Server database to a readable archive, restore it somewhere else, and prove the two match.</Description>
+    <Authors>Pedro Hernández (PeopleWorks)</Authors>
+    <Company>PeopleWorks</Company>
+    <Copyright>© 2026 PeopleWorks</Copyright>
+    <RepositoryUrl>https://github.com/peopleworks/SqlArchive</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageId>PeopleWorks.SqlArchive.Cli</PackageId>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>sqlarchive</ToolCommandName>
+    <PackageTags>sql-server;archive;backup;migration;cli;dotnet-tool</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SqlArchive.Core\SqlArchive.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Spectre.Console" Version="0.49.1" />
+    <PackageReference Include="Spectre.Console.Cli" Version="0.49.1" />
+  </ItemGroup>
+
+</Project>

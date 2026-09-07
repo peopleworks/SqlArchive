@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- A doc comment is for what is not obvious. Requiring one on every public
+         member buys filler on CreatedAt and teaches contributors to write it. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <Version>0.1.0</Version>
+    <Description>Reads and writes the SqlArchive format: a manifest carrying a full schema snapshot and a per-table content hash, phased SQL, and one JSONL file per table. The engine behind exporting a SQL Server database to a readable archive, restoring it as a migration, and verifying the two match.</Description>
+    <Authors>Pedro Hernández (PeopleWorks)</Authors>
+    <Company>PeopleWorks</Company>
+    <Copyright>© 2026 PeopleWorks</Copyright>
+    <RepositoryUrl>https://github.com/peopleworks/SqlArchive</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageId>PeopleWorks.SqlArchive.Core</PackageId>
+    <PackageTags>sql-server;archive;backup;migration;schema-diff;library</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The two engines, referenced and never copied. The schema side extracts,
+         compares and composes; the data side streams, stages, guards and publishes.
+         Two phases of work went into making both of them fit to compose, and the
+         whole point of that work is that this project stays thin. -->
+    <PackageReference Include="PeopleWorks.SqlSchemaDiff.Core" Version="1.7.0" />
+    <PackageReference Include="PeopleWorks.SyncJob.Core" Version="1.0.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>
