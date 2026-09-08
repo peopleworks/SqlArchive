@@ -1,0 +1,236 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  # Manual runs build, smoke-test and pack, and then stop at the tag guard below.
+  # They are for rehearsing the build, not for publishing: there is no tag on a
+  # branch to publish against.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write # required to obtain the OIDC token for trusted publishing
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build
+        run: dotnet build SqlArchive.sln -c Release
+
+      # No release goes out on a red suite. The unit tests carry the format, the
+      # value encoding and the CLI surface; the live ones need a SQL Server and
+      # belong to CI, which has one.
+      - name: Unit tests
+        run: dotnet test tests/SqlArchive.Core.Tests -c Release --no-build
+
+      # IncludeNativeLibrariesForSelfExtract es OBLIGATORIO aqui, no un adorno.
+      # Sin el, PublishSingleFile deja fuera Microsoft.Data.SqlClient.SNI.dll y el
+      # ejecutable revienta con DllNotFoundException en cuanto abre una conexion.
+      # Es la misma leccion que costo un release en SyncJob, y este repositorio
+      # depende del mismo driver.
+      - name: Publish self-contained Windows executable
+        run: >
+          dotnet publish src/SqlArchive.Cli/SqlArchive.Cli.csproj -c Release -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:EnableCompressionInSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -o ./publish/win-x64
+
+      - name: Verify the published binary actually runs
+        shell: pwsh
+        run: |
+          # Se corre desde una carpeta VACIA, con el .exe solo. Es la unica forma
+          # de comprobar que no depende de nada que quedo en la de publicacion:
+          # eso es exactamente lo que le pasa a quien descarga el zip.
+          New-Item -ItemType Directory -Force -Path ./smoke | Out-Null
+          Copy-Item ./publish/win-x64/sqlarchive.exe ./smoke/
+          Push-Location ./smoke
+          $version = & .\sqlarchive.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "El ejecutable no arranca (exit $LASTEXITCODE)" }
+          Write-Host "Version reportada: $version"
+          # --help ejerce el arranque completo de la CLI sin tocar la red: el parser,
+          # las descripciones y los ejemplos, que es donde un corchete suelto mata el
+          # comando con "Could not find color or style".
+          & .\sqlarchive.exe --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "La CLI fallo al imprimir la ayuda (exit $LASTEXITCODE)" }
+          foreach ($verb in 'inspect','export','import','verify') {
+            & .\sqlarchive.exe $verb --help | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "La ayuda de '$verb' fallo (exit $LASTEXITCODE)" }
+          }
+          Pop-Location
+
+      # Un proyecto por linea: `dotnet pack` acepta uno solo, y nombrar dos falla
+      # con MSB1008 antes de empaquetar nada.
+      - name: Pack
+        run: |
+          dotnet pack src/SqlArchive.Core/SqlArchive.Core.csproj -c Release -o ./artifacts
+          dotnet pack src/SqlArchive.Cli/SqlArchive.Cli.csproj -c Release -o ./artifacts
+
+      # ------------------------------------------------------------------
+      # Los dos guardias van AQUI, antes de crear el release de GitHub, porque
+      # un release publicado no se retira.
+      # ------------------------------------------------------------------
+
+      # Existe porque --skip-duplicate se traga una etiqueta que no corresponde a
+      # ninguna version empaquetada: el push "tiene exito", no publica nada, y el
+      # release queda anunciando una version que no esta en NuGet.
+      #
+      # Aqui los DOS paquetes comparten la version (0.1.0) y se mueven juntos, asi
+      # que la etiqueta tiene que corresponder a los dos. Si algun dia divergen
+      # -como en SyncJob, donde el Core se estabilizo y el CLI siguio moviendose-,
+      # esta lista se queda solo con PeopleWorks.SqlArchive.Cli: el CLI es el
+      # producto de este repositorio y es a el a quien nombra la etiqueta, y el
+      # Core pasa a llevar su propia linea de version sin etiqueta propia.
+      - name: Assert the tag matches the packed version
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "::error::Esto no es una etiqueta sino ${GITHUB_REF_TYPE} '${GITHUB_REF_NAME}'."
+            echo "El build y las pruebas pasaron; no se publica nada porque no hay version que publicar."
+            echo "Para publicar de verdad: git tag vX.Y.Z && git push origin vX.Y.Z"
+            exit 1
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          missing=0
+          for id in PeopleWorks.SqlArchive.Core PeopleWorks.SqlArchive.Cli; do
+            expected="./artifacts/${id}.${version}.nupkg"
+            if [ ! -f "$expected" ]; then
+              echo "::error::La etiqueta ${GITHUB_REF_NAME} no corresponde a ${id}."
+              echo "Se esperaba $expected."
+              missing=1
+            else
+              echo "ok  $expected"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Lo que hay:"
+            ls -1 ./artifacts/*.nupkg
+            exit 1
+          fi
+
+      # El Core es una libreria y se referencia desde otros repositorios, asi que
+      # va con simbolos. Sin esta comprobacion, quitar IncludeSymbols del csproj
+      # publica una libreria sin depurable y nadie se entera hasta que alguien
+      # intenta entrar en ella.
+      #
+      # El CLI no lleva .snupkg y no tiene por que: es una herramienta que se
+      # instala, no una biblioteca en la que se entra depurando.
+      - name: Assert the Core carries its symbols
+        shell: bash
+        run: |
+          shopt -s nullglob
+          symbols=(./artifacts/PeopleWorks.SqlArchive.Core.*.snupkg)
+          if [ ${#symbols[@]} -eq 0 ]; then
+            echo "::error::No hay .snupkg junto a PeopleWorks.SqlArchive.Core: la libreria se publicaria sin simbolos."
+            exit 1
+          fi
+          echo "${symbols[@]}"
+
+      - name: Zip the executable
+        shell: pwsh
+        run: |
+          Compress-Archive -Path ./publish/win-x64/sqlarchive.exe `
+                           -DestinationPath ./artifacts/sqlarchive-win-x64.zip
+
+      - name: Create the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ./artifacts/*.zip
+            ./artifacts/*.nupkg
+          generate_release_notes: true
+          body: |
+            ## SqlArchive ${{ github.ref_name }}
+
+            **This tool is half built.** `inspect` reads an archive - its manifest,
+            its tables, their row counts and hashes, and what it does not contain -
+            without unpacking a byte. `export`, `import` and `verify` are declared,
+            documented, and refuse to run: they name the work package that brings
+            them and exit non-zero rather than reporting work that did not happen.
+
+            **`sqlarchive-win-x64.zip`** — a single self-contained executable.
+            No .NET runtime to install, nothing else to copy next to it.
+
+            ```powershell
+            # Unzip, then:
+            .\sqlarchive.exe inspect Ventas.sqlarchive
+            .\sqlarchive.exe inspect Ventas.sqlarchive --json
+            ```
+
+            Or install it as a .NET tool:
+
+            ```bash
+            dotnet tool install -g PeopleWorks.SqlArchive.Cli
+            sqlarchive --version
+            ```
+
+            The library behind it is
+            [`PeopleWorks.SqlArchive.Core`](https://www.nuget.org/packages/PeopleWorks.SqlArchive.Core):
+            the format, the manifest, the value encoding and the row hash.
+
+            **Requires** SQL Server 2016+ for the verbs that talk to one.
+            `inspect` needs no server at all.
+
+            The archive's shape and its value-encoding table are adopted from
+            [dbdumper](https://github.com/JeePeeTee/dbdumper) by JeePee (MIT), with
+            thanks. No code is copied, and SqlArchive reads dbdumper's manifest.
+
+            Companion tools: [SQLDiff](https://github.com/peopleworks/SqlSchemaDiff)
+            moves the schema, [SyncJob](https://github.com/peopleworks/syncjob) moves
+            the data, SqlArchive moves the whole database through a file.
+
+      # Trusted publishing: sin clave guardada. La politica tiene que existir en
+      # nuget.org -> Account -> Trusted Publishing ANTES del primer release, y
+      # todavia no existe. Estos son sus campos, exactamente:
+      #
+      #   Package Owner: peopleworksservices   Repository Owner: peopleworks
+      #   Repository:    SqlArchive            Workflow File:    release.yml
+      #   Environment:   (vacio)               Glob:             PeopleWorks.SqlArchive.*
+      #   Scopes:        Push -> Push new packages and package versions
+      #
+      # Environment vacio a proposito: este workflow no declara ninguno, y una
+      # politica que exija uno no encaja y el push responde 403.
+      #
+      # El glob cubre .Core y .Cli con una sola politica, que es justo para lo que
+      # sirve el glob de la politica.
+      #
+      # NO uses `secrets.NUGET_API_KEY` con un `if: env.NUGET_API_KEY != ''`. Ese
+      # guardia es la razon por la que SyncJob paso meses etiquetando releases que
+      # no publicaban nada: sin el secreto, el paso se saltaba en silencio y el
+      # workflow terminaba en verde.
+      - name: NuGet login (trusted publishing)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: peopleworksservices
+
+      # El glob lo expande el shell, un push por paquete. Dejarselo al cliente de
+      # NuGet funciona en ubuntu pero no aqui: en Windows toma ./artifacts/*.nupkg
+      # literalmente y responde "File does not exist".
+      #
+      # Solo *.nupkg: el cliente sube el .snupkg que este al lado por su cuenta.
+      - name: Push to NuGet
+        shell: bash
+        run: |
+          shopt -s nullglob
+          packages=(./artifacts/*.nupkg)
+          if [ ${#packages[@]} -eq 0 ]; then
+            echo "::error::No hay paquetes en ./artifacts que publicar."
+            exit 1
+          fi
+          for pkg in "${packages[@]}"; do
+            echo "--- pushing $pkg"
+            dotnet nuget push "$pkg" \
+              --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          done
