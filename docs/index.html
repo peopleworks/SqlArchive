@@ -1,0 +1,949 @@
+<!doctype html>
+<html lang="es" data-lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SqlArchive Pocket Guide</title>
+<meta name="description" content="Pocket guide for PeopleWorks SqlArchive - a SQL Server database as a readable archive, restored as a migration, and a per-table hash that proves two databases match. Half built: inspect works today.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230B1220'/><g fill='none' stroke='%2322D3EE' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><rect x='7' y='7' width='18' height='18' rx='3'/><path d='M7 13h18M13 10h6M13 19h6'/></g></svg>">
+<style>
+:root{
+  --bg:#F5F8FB;
+  --panel:#FFFFFF;
+  --panel2:#F1F5FA;
+  --raise:#EAF0F6;
+  --line:#DEE7F0;
+  --line2:#C8D5E4;
+  --tx:#0F1B2E;
+  --mu:#55657C;
+  --mu2:#4A5A70;
+  --dim:#9AAABF;
+  --ac:#0E7490;
+  --ac2:#0369A1;
+  --acBg:#E4F4F9;
+  --acLine:#A5DCE8;
+  --acTx:#FFFFFF;
+  --am:#B45309;
+  --am2:#92400E;
+  --amBg:#FDF3DC;
+  --amLine:#E5C489;
+  --gr:#15803D;
+  --grBg:#E7F6ED;
+  --grLine:#A6D9B9;
+  --rdw:#991B1B;
+  --rdwBg:#FDECEC;
+  --rdwLine:#EFC0C0;
+  --noteTx:#1E40AF;
+  --noteBg:#EDF3FE;
+  --noteLine:#BFD3F5;
+  --code:#0F1B2E;
+  --codeTx:#CFE0F5;
+  --codeLine:#0A1424;
+  --codeK:#67E8F9;
+  --codeO:#FCD34D;
+  --codeV:#34D399;
+  --codeC:#7D8FAC;
+  --btnBg:#23324B;
+  --btnLine:#3A4C69;
+  --btnTx:#B7C7E0;
+  --hdrBg:rgba(245,248,251,.94);
+  --heroA:rgba(14,116,144,.10);
+  --heroB:rgba(124,58,237,.08);
+  color-scheme:light;
+  --mono:"Cascadia Mono",ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",Menlo,monospace;
+  --sans:"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --wrap:1120px;
+}
+
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0B1220;
+  --panel:#121C30;
+  --panel2:#101A2E;
+  --raise:#16233C;
+  --line:#22304C;
+  --line2:#2A3C5E;
+  --tx:#E9EFFA;
+  --mu:#93A4C0;
+  --mu2:#8FA3C4;
+  --dim:#3D5A8A;
+  --ac:#22D3EE;
+  --ac2:#67E8F9;
+  --acBg:#0C2230;
+  --acLine:#1C6F84;
+  --acTx:#04212A;
+  --am:#FCD34D;
+  --am2:#FCD34D;
+  --amBg:#241C08;
+  --amLine:#8A6A16;
+  --gr:#6EE7B7;
+  --grBg:#0B2119;
+  --grLine:#1E6B4C;
+  --rdw:#FCA5A5;
+  --rdwBg:#2A1315;
+  --rdwLine:#8C3134;
+  --noteTx:#7FC4F5;
+  --noteBg:#10203A;
+  --noteLine:#2A4368;
+  --code:#101A2E;
+  --codeTx:#CFE0F5;
+  --codeLine:#2A3C5E;
+  --codeK:#67E8F9;
+  --codeO:#FCD34D;
+  --codeV:#34D399;
+  --codeC:#5C7196;
+  --btnBg:#16233C;
+  --btnLine:#2A3C5E;
+  --btnTx:#93A4C0;
+  --hdrBg:rgba(11,18,32,.92);
+  --heroA:rgba(34,211,238,.13);
+  --heroB:rgba(139,92,246,.12);
+  color-scheme:dark;
+}}
+
+:root[data-theme="dark"]{
+  --bg:#0B1220;
+  --panel:#121C30;
+  --panel2:#101A2E;
+  --raise:#16233C;
+  --line:#22304C;
+  --line2:#2A3C5E;
+  --tx:#E9EFFA;
+  --mu:#93A4C0;
+  --mu2:#8FA3C4;
+  --dim:#3D5A8A;
+  --ac:#22D3EE;
+  --ac2:#67E8F9;
+  --acBg:#0C2230;
+  --acLine:#1C6F84;
+  --acTx:#04212A;
+  --am:#FCD34D;
+  --am2:#FCD34D;
+  --amBg:#241C08;
+  --amLine:#8A6A16;
+  --gr:#6EE7B7;
+  --grBg:#0B2119;
+  --grLine:#1E6B4C;
+  --rdw:#FCA5A5;
+  --rdwBg:#2A1315;
+  --rdwLine:#8C3134;
+  --noteTx:#7FC4F5;
+  --noteBg:#10203A;
+  --noteLine:#2A4368;
+  --code:#101A2E;
+  --codeTx:#CFE0F5;
+  --codeLine:#2A3C5E;
+  --codeK:#67E8F9;
+  --codeO:#FCD34D;
+  --codeV:#34D399;
+  --codeC:#5C7196;
+  --btnBg:#16233C;
+  --btnLine:#2A3C5E;
+  --btnTx:#93A4C0;
+  --hdrBg:rgba(11,18,32,.92);
+  --heroA:rgba(34,211,238,.13);
+  --heroB:rgba(139,92,246,.12);
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:132px}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.6 var(--sans);-webkit-font-smoothing:antialiased}
+[data-lang="es"] .en{display:none}
+[data-lang="en"] .es{display:none}
+a{color:var(--ac2);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:var(--mono)}
+.wrap{max-width:var(--wrap);margin:0 auto;padding:0 20px}
+
+/* ---------- header ---------- */
+header{position:sticky;top:0;z-index:50;background:var(--hdrBg);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.bar{display:flex;align-items:center;gap:16px;padding:14px 0;flex-wrap:wrap}
+.brand{display:flex;align-items:baseline;gap:10px;margin-right:auto;min-width:0}
+.brand b{font-size:19px;letter-spacing:-.2px}
+.brand span{font-family:var(--mono);font-size:12px;color:var(--ac2);border:1px solid var(--acLine);background:var(--acBg);padding:3px 9px;border-radius:20px;white-space:nowrap}
+.tools{display:flex;align-items:center;gap:8px}
+.seg{display:flex;border:1px solid var(--line2);border-radius:20px;overflow:hidden;background:var(--panel2)}
+.seg button{font:600 12px/1 var(--sans);letter-spacing:.6px;color:var(--mu);background:none;border:0;padding:8px 13px;cursor:pointer;display:grid;place-items:center}
+.seg button[aria-pressed="true"]{background:var(--ac);color:var(--acTx)}
+.seg button svg{width:14px;height:14px;fill:currentColor;display:block}
+.ghost{display:inline-flex;align-items:center;gap:7px;font:600 12.5px/1 var(--sans);color:var(--mu);border:1px solid var(--line2);background:var(--panel2);padding:8px 13px;border-radius:20px}
+.ghost:hover{color:var(--tx);border-color:var(--dim);text-decoration:none}
+.ghost svg{width:15px;height:15px;fill:currentColor}
+nav.jump{border-top:1px solid var(--line);overflow-x:auto;scrollbar-width:thin}
+nav.jump ul{display:flex;gap:4px;list-style:none;margin:0;padding:9px 0;white-space:nowrap}
+nav.jump a{font-family:var(--mono);font-size:12.5px;color:var(--mu);padding:6px 11px;border-radius:7px;display:block}
+nav.jump a:hover{background:var(--raise);color:var(--tx);text-decoration:none}
+
+/* ---------- hero band ---------- */
+.hero{border-bottom:1px solid var(--line);background:
+   radial-gradient(900px 220px at 12% -40%,var(--heroA),transparent 70%),
+   radial-gradient(700px 200px at 78% -50%,var(--heroB),transparent 70%)}
+.hero .wrap{padding-top:44px;padding-bottom:40px}
+.hero h1{font-size:clamp(28px,4.4vw,42px);line-height:1.12;margin:0 0 12px;letter-spacing:-.7px}
+.hero h1 em{font-style:normal;color:var(--ac2)}
+.hero p.lead{color:var(--mu);max-width:64ch;margin:0 0 22px;font-size:17px}
+.rail{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-family:var(--mono);font-size:12.5px}
+.rail i{font-style:normal;border:1px solid var(--line2);background:var(--panel);padding:6px 11px;border-radius:8px;color:var(--mu2)}
+.rail i.on{border-color:var(--acLine);background:var(--acBg);color:var(--ac2)}
+.rail i.hot{border-color:var(--amLine);background:var(--amBg);color:var(--am2)}
+.rail s{color:var(--dim);text-decoration:none}
+.note{margin-top:22px;display:flex;gap:11px;align-items:flex-start;border:1px solid var(--noteLine);background:var(--noteBg);border-radius:11px;padding:12px 15px;font-size:14px;color:var(--noteTx);max-width:70ch}
+.note svg{width:17px;height:17px;fill:currentColor;flex:none;margin-top:2px}
+
+/* ---------- sections ---------- */
+main{padding:8px 0 20px}
+section{margin:44px 0 0}
+.head{display:flex;align-items:center;gap:12px;margin:0 0 6px}
+.head .n{font-family:var(--mono);font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:7px;padding:4px 8px;flex:none}
+h2{font-size:23px;margin:0;letter-spacing:-.3px}
+.sub{color:var(--mu);margin:0 0 20px 46px;font-size:15px;max-width:72ch}
+@media(max-width:640px){.sub{margin-left:0}}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:14px}
+.card>h3{margin:0 0 4px;font-size:15px;letter-spacing:.2px}
+.card>h3 code{font-size:14.5px;color:var(--ac2)}
+.card>p{margin:0 0 14px;color:var(--mu);font-size:14.5px}
+.card>p:last-child{margin-bottom:0}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(330px,1fr))}
+
+/* ---------- command block ---------- */
+.cmd{position:relative;background:var(--code);border:1px solid var(--codeLine);border-radius:10px;margin:0 0 12px}
+.cmd:last-child{margin-bottom:0}
+.cmd pre{margin:0;padding:14px 46px 14px 15px;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.75;color:var(--codeTx)}
+.cmd .k{color:var(--codeK)}
+.cmd .o{color:var(--codeO)}
+.cmd .v{color:var(--codeV)}
+.cmd .c{color:var(--codeC)}
+.cmd button{position:absolute;top:8px;right:8px;width:30px;height:30px;display:grid;place-items:center;background:var(--btnBg);border:1px solid var(--btnLine);border-radius:7px;color:var(--btnTx);cursor:pointer;opacity:0;transition:opacity .14s}
+.cmd:hover button,.cmd button:focus-visible{opacity:1}
+.cmd button:hover{color:var(--codeK);border-color:var(--ac)}
+.cmd button svg{width:14px;height:14px;fill:currentColor}
+.cmd button.done{color:var(--codeV);border-color:var(--grLine);opacity:1}
+
+/* ---------- tables ---------- */
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:11px;background:var(--panel2)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:520px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line)}
+th{background:var(--raise);color:var(--mu2);font:700 11.5px/1.4 var(--sans);letter-spacing:1.1px;text-transform:uppercase;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td code{font-size:13px;color:var(--ac2);white-space:nowrap}
+td:first-child{white-space:nowrap}
+.eng{font-family:var(--mono);font-size:11.5px;color:var(--mu)}
+
+/* ---------- callouts ---------- */
+.warn{display:flex;gap:11px;align-items:flex-start;border-radius:11px;padding:12px 15px;font-size:14px;margin:0 0 14px;border:1px solid}
+.warn:last-child{margin-bottom:0}
+.warn svg{width:17px;height:17px;fill:currentColor;flex:none;margin-top:2px}
+.warn.d{border-color:var(--rdwLine);background:var(--rdwBg);color:var(--rdw)}
+.warn.a{border-color:var(--amLine);background:var(--amBg);color:var(--am2)}
+.warn.g{border-color:var(--grLine);background:var(--grBg);color:var(--gr)}
+
+/* ---------- misc ---------- */
+.kv{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:14px;margin:0}
+.kv dt{font-family:var(--mono);font-size:13px;color:var(--am)}
+.kv dd{margin:0;color:var(--mu)}
+.figure{margin:0 0 14px;border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:10px}
+.figure img{display:block;width:100%;height:auto;border-radius:8px}
+.figure figcaption{color:var(--mu);font-size:13px;padding:10px 8px 4px;text-align:center}
+footer{border-top:1px solid var(--line);margin-top:56px;padding:32px 0 46px;color:var(--mu);font-size:14px}
+footer .fl{display:flex;gap:20px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+footer b{color:var(--tx)}
+.up{position:fixed;right:20px;bottom:20px;width:40px;height:40px;display:grid;place-items:center;background:var(--panel);border:1px solid var(--line2);border-radius:11px;color:var(--mu);opacity:0;pointer-events:none;transition:opacity .2s}
+.up.show{opacity:1;pointer-events:auto}
+.up:hover{color:var(--ac2);border-color:var(--acLine);text-decoration:none}
+.up svg{width:16px;height:16px;fill:currentColor}
+
+/* The figure plates carry their own background, so they stay legible in both
+   themes; a touch of dimming keeps a bright plate from glaring on a dark page. */
+:root[data-theme="dark"] .figure img{filter:brightness(.92)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .figure img{filter:brightness(.92)}}
+</style>
+<script>
+/* Applied before first paint: a pinned choice must not flash the other theme.
+   With nothing pinned, the CSS prefers-color-scheme query already has it right. */
+(function(){try{
+  var d=document.documentElement,t=localStorage.getItem('sqlarchive-theme'),l=localStorage.getItem('sqlarchive-lang');
+  if(t==='light'||t==='dark')d.setAttribute('data-theme',t);
+  if(l==='es'||l==='en'){d.setAttribute('data-lang',l);d.setAttribute('lang',l);}
+}catch(e){}})();
+</script>
+</head>
+<body>
+
+<header>
+  <div class="wrap bar">
+    <div class="brand">
+      <b>SqlArchive</b>
+      <span class="es">Guía de bolsillo</span><span class="en">Pocket Guide</span>
+    </div>
+    <div class="tools">
+      <div class="seg" role="group" aria-label="Language">
+        <button type="button" data-set="es" aria-pressed="true">ES</button>
+        <button type="button" data-set="en" aria-pressed="false">EN</button>
+      </div>
+      <div class="seg" role="group" aria-label="Theme">
+        <button type="button" data-theme-set="light" aria-pressed="false" title="Light" aria-label="Light"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V.75A.75.75 0 0 1 8 0Zm0 12.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5a.75.75 0 0 1 .75-.75ZM16 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 16 8ZM3.5 8a.75.75 0 0 1-.75.75H1.25a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 3.5 8Zm9.66-5.66a.75.75 0 0 1 0 1.06L12.1 4.46a.75.75 0 1 1-1.06-1.06l1.06-1.06a.75.75 0 0 1 1.06 0ZM4.96 11.54a.75.75 0 0 1 0 1.06L3.9 13.66a.75.75 0 0 1-1.06-1.06l1.06-1.06a.75.75 0 0 1 1.06 0Zm8.2 2.12a.75.75 0 0 1-1.06 0L11.04 12.6a.75.75 0 0 1 1.06-1.06l1.06 1.06a.75.75 0 0 1 0 1.06ZM4.96 4.46a.75.75 0 0 1-1.06 0L2.84 3.4A.75.75 0 0 1 3.9 2.34l1.06 1.06a.75.75 0 0 1 0 1.06ZM8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"/></svg></button>
+        <button type="button" data-theme-set="dark" aria-pressed="false" title="Dark" aria-label="Dark"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8.35 1.05a.62.62 0 0 1 .1.72 5.25 5.25 0 0 0 5.86 7.6.62.62 0 0 1 .7.83A6.85 6.85 0 1 1 7.63.95a.62.62 0 0 1 .72.1Z"/></svg></button>
+      </div>
+      <a class="ghost" href="https://github.com/peopleworks/SqlArchive">
+        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        <span>GitHub</span>
+      </a>
+    </div>
+  </div>
+  <nav class="jump"><div class="wrap"><ul>
+    <li><a href="#state"><span class="es">Estado</span><span class="en">Status</span></a></li>
+    <li><a href="#install"><span class="es">Instalación</span><span class="en">Install</span></a></li>
+    <li><a href="#inspect"><code>inspect</code></a></li>
+    <li><a href="#archive"><span class="es">El archivo</span><span class="en">The archive</span></a></li>
+    <li><a href="#equality"><span class="es">La igualdad</span><span class="en">Equality</span></a></li>
+    <li><a href="#omitted"><span class="es">Lo que no viaja</span><span class="en">What is left out</span></a></li>
+    <li><a href="#dbdumper">dbdumper</a></li>
+    <li><a href="#coming"><span class="es">Lo que viene</span><span class="en">What is coming</span></a></li>
+    <li><a href="#cheat"><span class="es">Chuleta</span><span class="en">Cheat sheet</span></a></li>
+  </ul></div></nav>
+</header>
+
+<div class="hero"><div class="wrap">
+  <h1>
+    <span class="es">Una base entera <em>en un archivo que se lee</em></span>
+    <span class="en">A whole database <em>in a file you can read</em></span>
+  </h1>
+  <p class="lead es">SqlArchive exporta una base SQL Server a un archivo legible, la restaura en otra
+    y demuestra que las dos coinciden. Mil filas modificadas siguen siendo mil filas: el hash por
+    tabla es lo que las ve.</p>
+  <p class="lead en">SqlArchive exports a SQL Server database to a readable archive, restores it
+    somewhere else, and proves the two match. A thousand modified rows are still a thousand rows —
+    the per-table hash is what sees them.</p>
+
+  <div class="rail">
+    <i>SQL Server</i><s>→</s><i class="hot">export</i><s>→</s><i class="on">.sqlarchive</i>
+    <s>→</s><i class="hot">import</i><s>→</s><i>SQL Server</i><s>·</s><i class="on">verify</i>
+  </div>
+
+  <div class="note">
+    <svg viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm9 3a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Z"/></svg>
+    <div>
+      <span class="es"><b>Esta herramienta está a medio construir.</b> Hoy funciona
+        <code>inspect</code> y nada más. <code>export</code>, <code>import</code> y
+        <code>verify</code> están declarados, documentados, y se niegan a correr diciendo qué
+        paquete de trabajo los trae. Ver <a href="#state">Estado</a>.</span>
+      <span class="en"><b>This tool is half built.</b> Today <code>inspect</code> works and
+        nothing else. <code>export</code>, <code>import</code> and <code>verify</code> are
+        declared, documented, and refuse to run, naming the work package that brings them. See
+        <a href="#state">Status</a>.</span>
+    </div>
+  </div>
+</div></div>
+
+<main class="wrap">
+
+<!-- 1 STATE -->
+<section id="state">
+  <div class="head"><span class="n">01</span><h2><span class="es">Estado</span><span class="en">Status</span></h2></div>
+  <p class="sub es">Qué hace cada verbo hoy, sin adornos. Un comando que acepta argumentos y devuelve 0 sin hacer nada es peor que uno que todavía no está.</p>
+  <p class="sub en">What each verb does today, unvarnished. A command that takes arguments and returns 0 without doing anything is worse than one that is not there yet.</p>
+
+  <div class="tbl"><table>
+    <thead><tr>
+      <th><span class="es">Verbo</span><span class="en">Verb</span></th>
+      <th><span class="es">Hoy</span><span class="en">Today</span></th>
+      <th><span class="es">Salida</span><span class="en">Exit</span></th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td><code>inspect</code></td>
+        <td><span class="es"><b>Funciona.</b> Lee el manifiesto y la lista de entradas sin descomprimir un byte, tanto de un archivo nuestro como de uno de dbdumper.</span>
+            <span class="en"><b>Works.</b> Reads the manifest and the entry list without unpacking a byte, on one of ours and on one of dbdumper's.</span></td>
+        <td><code>0</code></td>
+      </tr>
+      <tr>
+        <td><code>export</code></td>
+        <td><span class="es"><b>No existe.</b> Se niega y dice que lo trae el paquete de trabajo 2.2, que se está escribiendo ahora.</span>
+            <span class="en"><b>Not built.</b> Refuses, and says work package 2.2 brings it — being written now.</span></td>
+        <td><code>2</code></td>
+      </tr>
+      <tr>
+        <td><code>import</code></td>
+        <td><span class="es"><b>No existe.</b> Paquete de trabajo 2.3, que necesita el 2.2 antes: no hay nada que importar hasta que algo pueda exportar.</span>
+            <span class="en"><b>Not built.</b> Work package 2.3, which needs 2.2 first: there is nothing to import until something can export.</span></td>
+        <td><code>2</code></td>
+      </tr>
+      <tr>
+        <td><code>verify</code></td>
+        <td><span class="es"><b>No existe.</b> Paquete de trabajo 2.4.</span>
+            <span class="en"><b>Not built.</b> Work package 2.4.</span></td>
+        <td><code>2</code></td>
+      </tr>
+    </tbody>
+  </table></div>
+
+  <div class="grid" style="margin-top:14px">
+    <div class="card">
+      <h3><span class="es">Lo que sí está terminado</span><span class="en">What is finished</span></h3>
+      <p class="es"><b>El formato</b>, que es de lo que cuelga todo lo demás: el manifiesto con un
+        snapshot completo del esquema, las fases <code>.sql</code>, el JSONL, la tabla de
+        codificación de valores que <i>define</i> la igualdad, el hash por tabla, y el lector del
+        manifiesto de dbdumper. Vive en <code>PeopleWorks.SqlArchive.Core</code> y su
+        especificación normativa es <code>FORMAT.md</code>.</p>
+      <p class="en"><b>The format</b>, which everything else hangs off: the manifest with a full
+        schema snapshot, the <code>.sql</code> phases, the JSONL, the value-encoding table that
+        <i>defines</i> equality, the per-table hash, and the reader for dbdumper's manifest. It
+        lives in <code>PeopleWorks.SqlArchive.Core</code>, and <code>FORMAT.md</code> is its
+        normative specification.</p>
+    </div>
+
+    <div class="card">
+      <h3><span class="es">Códigos de salida</span><span class="en">Exit codes</span></h3>
+      <dl class="kv">
+        <dt>0</dt><dd><span class="es">El comando hizo lo que dice que hace.</span><span class="en">The command did what it says it does.</span></dd>
+        <dt>1</dt><dd><span class="es">Lo intentó y falló: una ruta mala, un valor rechazado, un archivo ilegible.</span><span class="en">It tried and failed: a bad path, a refused value, an unreadable archive.</span></dd>
+        <dt>2</dt><dd><span class="es">El verbo está en la ayuda y todavía no está construido.</span><span class="en">The verb is in the help and is not built yet.</span></dd>
+      </dl>
+      <div class="warn g" style="margin-top:14px">
+        <svg viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm11.78-1.72a.75.75 0 0 0-1.06-1.06L6.75 9.19 5.28 7.72a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0Z"/></svg>
+        <div>
+          <span class="es"><code>2</code> es distinto de <code>1</code> a propósito: «esto todavía no se puede» y «esta corrida salió mal» son respuestas diferentes, y un script no debería tener que leer el mensaje para distinguirlas.</span>
+          <span class="en"><code>2</code> is separate from <code>1</code> on purpose: "this cannot be done yet" and "this run went wrong" are different answers, and a script should not have to read the message to tell them apart.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 2 INSTALL -->
+<section id="install">
+  <div class="head"><span class="n">02</span><h2><span class="es">Instalación</span><span class="en">Install</span></h2></div>
+  <p class="sub es">Como herramienta de .NET, como binario del release, o compilando el código.</p>
+  <p class="sub en">As a .NET tool, as a release binary, or from source.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h3><span class="es">Herramienta .NET o binario</span><span class="en">.NET tool or binary</span></h3>
+      <div class="cmd"><pre><code><span class="c"># <span class="es">herramienta global</span><span class="en">global tool</span></span>
+<span class="k">dotnet</span> tool install <span class="o">-g</span> <span class="v">PeopleWorks.SqlArchive.Cli</span>
+<span class="k">sqlarchive</span> <span class="o">--version</span>
+
+<span class="c"># <span class="es">o el ejecutable del release</span><span class="en">or the release executable</span></span>
+<span class="k">.\sqlarchive.exe</span> <span class="o">--version</span></code></pre></div>
+      <div class="warn a">
+        <svg viewBox="0 0 16 16"><path d="M6.46 1.14a1.75 1.75 0 0 1 3.08 0l5.25 9.44A1.75 1.75 0 0 1 13.25 13.2H2.75a1.75 1.75 0 0 1-1.54-2.62ZM8 5a.75.75 0 0 0-.75.75v2.5a.75.75 0 0 0 1.5 0v-2.5A.75.75 0 0 0 8 5Zm0 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"/></svg>
+        <div>
+          <span class="es">Todavía no hay ni paquete en nuget.org ni release. Hasta la primera etiqueta, compilar el código es la única entrada.</span>
+          <span class="en">There is no package on nuget.org and no release yet. Until the first tag, building from source is the only way in.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3><span class="es">Compilar desde el código</span><span class="en">Build from source</span></h3>
+      <div class="cmd"><pre><code><span class="k">git</span> clone https://github.com/peopleworks/SqlArchive.git
+<span class="k">cd</span> SqlArchive
+<span class="k">dotnet</span> build SqlArchive.sln <span class="o">-c</span> <span class="v">Release</span>
+<span class="k">dotnet</span> run <span class="o">--project</span> src/SqlArchive.Cli <span class="o">--</span> <span class="k">inspect</span> <span class="v">Ventas.sqlarchive</span></code></pre></div>
+      <p class="es">Sólo hace falta el SDK de .NET 9. <code>inspect</code> no toca ningún servidor,
+        así que no hace falta SQL Server para probarlo.</p>
+      <p class="en">The .NET 9 SDK is all it takes. <code>inspect</code> touches no server, so no
+        SQL Server is needed to try it.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 3 INSPECT -->
+<section id="inspect">
+  <div class="head"><span class="n">03</span><h2><code>inspect</code></h2></div>
+  <p class="sub es">El verbo que funciona. Lee lo que el archivo dice de sí mismo y no descomprime los datos, así que es igual de rápido con cien gigabytes que con uno.</p>
+  <p class="sub en">The verb that works. It reads what the archive says about itself and never unpacks the data, so it is as fast on a hundred gigabytes as on one.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h3><span class="es">Las tres formas de usarlo</span><span class="en">The three ways to run it</span></h3>
+      <div class="cmd"><pre><code><span class="c"># <span class="es">¿qué hay en este archivo?</span><span class="en">what is in this file?</span></span>
+<span class="k">sqlarchive</span> <span class="k">inspect</span> <span class="v">Ventas.sqlarchive</span>
+
+<span class="c"># <span class="es">cada entrada, comprimida y sin comprimir</span><span class="en">every entry, packed and unpacked</span></span>
+<span class="k">sqlarchive</span> <span class="k">inspect</span> <span class="v">Ventas.sqlarchive</span> <span class="o">--entries</span>
+
+<span class="c"># <span class="es">el manifiesto tal como está en el archivo</span><span class="en">the manifest exactly as the archive holds it</span></span>
+<span class="k">sqlarchive</span> <span class="k">inspect</span> <span class="v">Ventas.sqlarchive</span> <span class="o">--json</span> | jq .tables</code></pre></div>
+      <p class="es"><code>--json</code> no reserializa nada: entrega los bytes del manifiesto. Es
+        también la forma de ver los hashes enteros, que en la tabla salen recortados a 16 de 64
+        caracteres.</p>
+      <p class="en"><code>--json</code> re-serializes nothing: it hands over the manifest's own
+        bytes. It is also how to see hashes in full — the table shows 16 of their 64 characters.</p>
+    </div>
+
+    <div class="card">
+      <h3><span class="es">Qué acepta como archivo</span><span class="en">What counts as an archive</span></h3>
+      <div class="tbl"><table>
+        <tbody>
+          <tr><td><code>*.sqlarchive</code></td><td><span class="es">Un archivo nuestro.</span><span class="en">One of ours.</span></td></tr>
+          <tr><td><code>*.zip</code></td><td><span class="es">Uno de dbdumper, si lleva su <code>manifest.json</code>.</span><span class="en">One of dbdumper's, if it carries its <code>manifest.json</code>.</span></td></tr>
+          <tr><td><span class="es">una carpeta</span><span class="en">a directory</span></td><td><span class="es">Un archivo ya descomprimido, con el <code>manifest.json</code> dentro.</span><span class="en">An archive already unpacked, with the <code>manifest.json</code> in it.</span></td></tr>
+          <tr><td><code>manifest.json</code></td><td><span class="es">El manifiesto solo, que es casi todo lo que <code>inspect</code> imprime.</span><span class="en">The manifest on its own, which is most of what <code>inspect</code> prints.</span></td></tr>
+        </tbody>
+      </table></div>
+      <p class="es">Si no es ninguna de las cuatro, dice por qué no es un archivo nuestro <b>y</b>
+        por qué tampoco es uno de dbdumper, en vez de sólo negarse.</p>
+      <p class="en">When it is none of the four, it says why it is not one of ours <b>and</b> why it
+        is not one of dbdumper's, instead of just refusing.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3><span class="es">Lo que imprime</span><span class="en">What it prints</span></h3>
+    <div class="cmd"><pre><code><span class="c">── Ventas.sqlarchive ─────────────────────────────────────────────────</span>
+
+<span class="o">╭─this archive is partial─────────────────────────────────────────────╮</span>
+<span class="o">│</span> Some of what it describes it does not contain: 1 table carrying a   <span class="o">│</span>
+<span class="o">│</span> row filter and 1 table archived with no rows at all. The manifest   <span class="o">│</span>
+<span class="o">│</span> records both, so a verify knows the missing rows are absent on      <span class="o">│</span>
+<span class="o">│</span> purpose and does not report them as drift.                          <span class="o">│</span>
+<span class="o">╰─────────────────────────────────────────────────────────────────────╯</span>
+
+<span class="c">Format</span>        sqlarchive, version 1
+<span class="c">Written by</span>    SqlArchive 0.1.0
+<span class="c">Created</span>       2026-09-07 22:30:00 +00:00
+<span class="c">Consistency</span>   <span class="v">snapshot</span> - read from a database snapshot, so every table
+              is the same instant
+<span class="c">Server</span>        SQL2022 / Developer Edition (64-bit) / 16.0.4165.4
+<span class="c">Database</span>      Ventas / SQL_Latin1_General_CP1_CI_AS
+
+<span class="k">Schema</span>  2 schemas
+        2 tables, 1 stored procedure, 1 view
+
+╭──────────────────┬──────┬─────────────────────┬───────┬─────────────╮
+│ Table            │ Rows │ Row hash            │ Files │ Notes       │
+├──────────────────┼──────┼─────────────────────┼───────┼─────────────┤
+│ [audit].[Log]    │    - │ no data             │     0 │ <span class="o">schema only</span> │
+│ [dbo].[Customer] │    3 │ <span class="v">94eb66adebdc91df</span>... │     1 │             │
+│ [dbo].[Order]    │    2 │ <span class="v">3d5e6705ae893fcd</span>... │     1 │ <span class="o">filtered</span>    │
+╰──────────────────┴──────┴─────────────────────┴───────┴─────────────╯</code></pre></div>
+    <p class="es">Dice en voz alta lo que un archivo parcial tiene que decir: qué tablas llevan
+      filtro, cuáles se archivaron sin filas, y qué columnas el formato no lleva. Un archivo
+      parcial que no dice que lo es hace que un <code>verify</code> reporte diferencias que no son
+      diferencias.</p>
+    <p class="en">It says out loud what a partial archive has to say: which tables carry a filter,
+      which were archived without their rows, and which columns the format does not carry. A
+      partial archive that does not say so makes a <code>verify</code> report differences that are
+      not differences.</p>
+  </div>
+</section>
+
+<!-- 4 THE ARCHIVE -->
+<section id="archive">
+  <div class="head"><span class="n">04</span><h2><span class="es">El archivo</span><span class="en">The archive</span></h2></div>
+  <p class="sub es">Un zip. El manifiesto va al final porque lleva los hashes de todo lo demás, y eso no cuesta nada: un zip guarda su directorio al final.</p>
+  <p class="sub en">A zip. The manifest goes in last because it carries the hashes of everything else, and that costs nothing: a zip keeps its directory at the end.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h3><span class="es">La forma</span><span class="en">The shape</span></h3>
+      <div class="cmd"><pre><code>Ventas.sqlarchive
+├── <span class="o">manifest.json</span>              <span class="c"># <span class="es">esquema + conteo y hash por tabla</span><span class="en">schema + count and hash per table</span></span>
+├── <span class="k">schema/010_schemas.sql</span>     <span class="c"># <span class="es">en el orden de sus prefijos</span><span class="en">in the order of their prefixes</span></span>
+├── <span class="k">schema/040_tables.sql</span>
+├── <span class="k">schema/070_foreignkeys.sql</span>
+├── <span class="k">schema/090_finalize.sql</span>    <span class="c"># <span class="es">reseed, secuencias, versionado</span><span class="en">reseed, sequences, versioning</span></span>
+├── <span class="v">data/dbo.Customer.jsonl</span>    <span class="c"># <span class="es">una fila por línea</span><span class="en">one row per line</span></span>
+├── <span class="v">data/dbo.Order.0000.jsonl</span>  <span class="c"># <span class="es">tabla grande, un fichero por rango</span><span class="en">big table, one file per range</span></span>
+└── README.txt</code></pre></div>
+      <p class="es">Que las fases sean ejecutables a mano no es decoración: es lo que hace que el
+        archivo sirva de archivo cuando ya no exista la herramienta.</p>
+      <p class="en">That the phases run by hand is not decoration: it is what makes the archive an
+        archive on the day the tool is gone.</p>
+    </div>
+
+    <div class="card">
+      <h3><span class="es">Nombres de entrada</span><span class="en">Entry names</span></h3>
+      <p class="es">Un identificador SQL puede llevar casi cualquier cosa. Se codifican en
+        porcentaje los caracteres que harían el nombre ambiguo o inextraíble — <b>el punto
+        incluido</b>, porque el punto es el separador.</p>
+      <p class="en">A SQL identifier may contain almost anything. The characters that would make a
+        name ambiguous or unextractable are percent-encoded — <b>the dot included</b>, because the
+        dot is the separator.</p>
+      <div class="cmd"><pre><code>[dbo].[My.Table]  <span class="c">→</span>  data/dbo.My<span class="o">%2E</span>Table.jsonl
+[dbo.My].[Table]  <span class="c">→</span>  data/dbo<span class="o">%2E</span>My.Table.jsonl</code></pre></div>
+      <p class="es">Sin escapar el punto los dos darían el mismo nombre. La codificación es
+        inyectiva y nunca se invierte: el manifiesto lista las entradas de cada tabla.</p>
+      <p class="en">Without escaping the dot the two would collide. The encoding is injective and
+        is never reversed: the manifest lists each table's entries explicitly.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 5 EQUALITY -->
+<section id="equality">
+  <div class="head"><span class="n">05</span><h2><span class="es">La igualdad</span><span class="en">Equality</span></h2></div>
+  <p class="sub es">La tabla de codificación de valores es normativa: es la definición de que dos filas son la misma fila. No es un detalle del exportador.</p>
+  <p class="sub en">The value-encoding table is normative: it is the definition of two rows being the same row. It is not an implementation detail of the exporter.</p>
+
+  <div class="tbl"><table>
+    <thead><tr>
+      <th><span class="es">Tipo SQL</span><span class="en">SQL type</span></th>
+      <th>JSON</th>
+      <th><span class="es">Por qué</span><span class="en">Why</span></th>
+    </tr></thead>
+    <tbody>
+      <tr><td><code>bit</code></td><td><code>true</code> / <code>false</code></td><td><span class="es">Un tipo de dos valores escrito como el tipo de dos valores de JSON.</span><span class="en">A two-valued type written as JSON's two-valued type.</span></td></tr>
+      <tr><td><code>int</code>, <code>bigint</code></td><td><span class="es">número, sin exponente</span><span class="en">number, no exponent</span></td><td><span class="es">Un <code>bigint</code> más allá de 2⁵³ es exacto aquí; un lector propio debe parsearlo a 64 bits.</span><span class="en">A <code>bigint</code> past 2⁵³ is exact here; a hand-written reader should parse it as 64-bit.</span></td></tr>
+      <tr><td><code>decimal</code>, <code>numeric</code></td><td><span class="es">cadena</span><span class="en">string</span></td><td><span class="es">Vía <code>SqlDecimal</code>, con los 38 dígitos y la escala exacta que declara la columna: <code>decimal(19,4)</code> guarda uno como <code>"1.0000"</code>.</span><span class="en">Through <code>SqlDecimal</code>, all 38 digits, at exactly the column's scale: a <code>decimal(19,4)</code> holding one is <code>"1.0000"</code>.</span></td></tr>
+      <tr><td><code>money</code></td><td><span class="es">cadena, 4 decimales</span><span class="en">string, four decimals</span></td><td><span class="es"><code>SqlMoney.Value</code>, nunca <code>ToString()</code>, que escribe un número <i>variable</i> de decimales.</span><span class="en"><code>SqlMoney.Value</code>, never <code>ToString()</code>, which writes a <i>variable</i> number of decimals.</span></td></tr>
+      <tr><td><code>float</code> / <code>real</code></td><td><span class="es">número</span><span class="en">number</span></td><td><span class="es">Round-trip más corto, <b>a la precisión del tipo</b>: un <code>real</code> con 0.1 es <code>0.1</code>, no <code>0.10000000149011612</code>.</span><span class="en">Shortest round-trip <b>at the type's precision</b>: a <code>real</code> holding 0.1 is <code>0.1</code>, not <code>0.10000000149011612</code>.</span></td></tr>
+      <tr><td><code>datetime2</code></td><td><code>"2026-01-15T10:00:00.003"</code></td><td><span class="es">ISO 8601 con la <code>T</code>: la forma con espacio se lee según el <code>DATEFORMAT</code> de la sesión.</span><span class="en">ISO 8601 with the <code>T</code>: the space-separated form is read according to the session's <code>DATEFORMAT</code>.</span></td></tr>
+      <tr><td><code>uniqueidentifier</code></td><td><span class="es">forma <code>D</code>, minúsculas</span><span class="en"><code>D</code> form, lower case</span></td><td><span class="es">Había que fijar una para que los bytes fueran estables.</span><span class="en">One had to be picked for the bytes to be stable.</span></td></tr>
+      <tr><td><code>varbinary</code>, <code>geography</code></td><td>base64</td><td><span class="es">La serialización del propio servidor, leída con <code>GetBytes</code>: no hace falta <code>Microsoft.SqlServer.Types</code> ni en Linux.</span><span class="en">The server's own serialisation, read with <code>GetBytes</code>: no <code>Microsoft.SqlServer.Types</code> needed, Linux included.</span></td></tr>
+      <tr><td><code>sql_variant</code></td><td>—</td><td><span class="es"><b>Rechazado</b>, nombrando la columna. Su tipo base, precisión y collation tendrían que viajar por valor.</span><span class="en"><b>Refused</b>, naming the column. Its base type, precision and collation would have to travel per value.</span></td></tr>
+      <tr><td><span class="es">cualquier otro</span><span class="en">anything else</span></td><td>—</td><td><span class="es"><b>Rechazado</b>, nombrando el tipo. Un <i>fallback</i> a texto es lo que convierte un tipo desconocido en un archivo que parece correcto y no lo es.</span><span class="en"><b>Refused</b>, naming the type. A string fallback is what turns an unknown type into an archive that looks right and is not.</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="grid" style="margin-top:14px">
+    <div class="card">
+      <h3><span class="es">El hash de una tabla</span><span class="en">A table's hash</span></h3>
+      <p class="es"><b>La suma, módulo 2²⁵⁶, del SHA-256 de cada línea JSONL canónica</b> — la línea
+        tal cual está en el fichero, sin su terminador. Hex en minúsculas, 64 caracteres, sin
+        prefijo.</p>
+      <p class="en"><b>The sum, modulo 2²⁵⁶, of the SHA-256 of each canonical JSONL line</b> — the
+        line exactly as it is in the file, without its terminator. Lowercase hex, 64 characters, no
+        prefix.</p>
+      <dl class="kv">
+        <dt><span class="es">no depende del orden</span><span class="en">order-independent</span></dt>
+        <dd><span class="es">El export lee en paralelo por rangos y un verify puede leer en otro orden o con otros cortes.</span><span class="en">Export reads ranges in parallel and a verify may read in another order or with other boundaries.</span></dd>
+        <dt><span class="es">no depende del motor</span><span class="en">not the engine's opinion</span></dt>
+        <dd><span class="es">La misma fila desde 2016 y desde 2022 da los mismos bytes. <code>CHECKSUM_AGG</code> habría atado la respuesta a la versión.</span><span class="en">The same row from 2016 and from 2022 gives the same bytes. <code>CHECKSUM_AGG</code> would have tied the answer to the version.</span></dd>
+        <dt><span class="es">ve un UPDATE</span><span class="en">sees an UPDATE</span></dt>
+        <dd><span class="es">Que es lo que un conteo no ve. No dice <i>qué</i> fila cambió, y ése es el precio aceptado.</span><span class="en">Which a row count cannot. It does not say <i>which</i> row changed, and that is the accepted trade.</span></dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <h3><span class="es">Suma, no XOR</span><span class="en">The sum, not XOR</span></h3>
+      <p class="es"><code>DESIGN.md</code> decía XOR. El XOR es una involución, así que dos
+        contribuciones idénticas se cancelan — y el problema no es el caso evidente que el conteo
+        de filas sí atrapa:</p>
+      <p class="en"><code>DESIGN.md</code> said XOR. XOR is an involution, so identical
+        contributions cancel — and the problem is not the obvious case that the row count does
+        catch:</p>
+      <div class="cmd"><pre><code><span class="o">{A,A,B,B}</span>  <span class="c">→</span>  0     <span class="c"># 4 <span class="es">filas</span><span class="en">rows</span></span>
+<span class="o">{C,C,D,D}</span>  <span class="c">→</span>  0     <span class="c"># 4 <span class="es">filas</span><span class="en">rows</span></span></code></pre></div>
+      <div class="warn d">
+        <svg viewBox="0 0 16 16"><path d="M6.46 1.14a1.75 1.75 0 0 1 3.08 0l5.25 9.44A1.75 1.75 0 0 1 13.25 13.2H2.75a1.75 1.75 0 0 1-1.54-2.62ZM8 5a.75.75 0 0 0-.75.75v2.5a.75.75 0 0 0 1.5 0v-2.5A.75.75 0 0 0 8 5Zm0 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"/></svg>
+        <div>
+          <span class="es">Los dos dan cero <b>y los dos tienen cuatro filas</b>, así que el conteo no atrapa ninguno. Un restore que copió un rango dos veces y se dejó otro aterriza justo ahí, y una tabla sin clave primaria es justo donde viven las filas duplicadas.</span>
+          <span class="en">Both hash to zero <b>and both have four rows</b>, so the count catches neither. A restore that copied one range twice and dropped another lands exactly there, and a table with no primary key is exactly where duplicate rows live.</span>
+        </div>
+      </div>
+      <p class="es">La suma conserva todo lo que hacía falta —conmutativa, asociativa, un grupo— y
+        no tiene involución. Una tabla vacía son 64 ceros.</p>
+      <p class="en">The sum keeps every property that was wanted — commutative, associative, a group
+        — and has no involution. An empty table is 64 zeros.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 6 OMITTED -->
+<section id="omitted">
+  <div class="head"><span class="n">06</span><h2><span class="es">Lo que no viaja</span><span class="en">What is left out</span></h2></div>
+  <p class="sub es">Tres familias de columnas, y por la misma razón las tres: el servidor las escribe él y rechaza que se las escriban.</p>
+  <p class="sub en">Three families of column, all for the same reason: the server writes them itself and refuses to be told what they are.</p>
+
+  <div class="tbl"><table>
+    <thead><tr>
+      <th><span class="es">Columna</span><span class="en">Column</span></th>
+      <th><span class="es">Por qué no viaja</span><span class="en">Why it is left out</span></th>
+    </tr></thead>
+    <tbody>
+      <tr><td><span class="es">calculadas</span><span class="en">computed</span></td><td><span class="es">Se derivan de las otras. <code>INSERT</code> se niega a nombrarlas.</span><span class="en">Derived from the others. <code>INSERT</code> refuses to name one.</span></td></tr>
+      <tr><td><code>rowversion</code></td><td><span class="es">Las asigna el servidor desde un contador de <i>una</i> base. Una fila restaurada recibe necesariamente otra.</span><span class="en">Assigned by the server from a counter belonging to one database. A restored row necessarily gets a different one.</span></td></tr>
+      <tr><td><code>GENERATED ALWAYS</code></td><td><span class="es">Las columnas de período de una tabla versionada. Rechazadas <b>incluso con <code>SYSTEM_VERSIONING = OFF</code></b>, que es el estado en el que un restore carga filas.</span><span class="en">The period columns of a system-versioned table. Refused <b>even with <code>SYSTEM_VERSIONING = OFF</code></b>, which is the state a restore loads rows in.</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="warn g" style="margin-top:14px">
+    <svg viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm11.78-1.72a.75.75 0 0 0-1.06-1.06L6.75 9.19 5.28 7.72a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0Z"/></svg>
+    <div>
+      <span class="es">Llevarlas haría que <code>verify</code> no pudiera pasar nunca sobre una tabla que las tenga. El manifiesto las declara en <code>omittedColumns</code> —y <code>inspect</code> las muestra— para que su ausencia sea un hecho registrado y no un hueco.</span>
+      <span class="en">Carrying them would make <code>verify</code> impossible to pass on a table that has one. The manifest declares them in <code>omittedColumns</code> — and <code>inspect</code> shows them — so their absence is a recorded fact rather than a gap.</span>
+    </div>
+  </div>
+</section>
+
+<!-- 7 DBDUMPER -->
+<section id="dbdumper">
+  <div class="head"><span class="n">07</span><h2>dbdumper</h2></div>
+  <p class="sub es">La forma del archivo y la tabla de codificación se adoptan de <a href="https://github.com/JeePeeTee/dbdumper">dbdumper</a> de JeePee (MIT), con crédito y sin copiar su código.</p>
+  <p class="sub en">The archive's shape and its encoding table are adopted from <a href="https://github.com/JeePeeTee/dbdumper">dbdumper</a> by JeePee (MIT), with thanks and with no code copied.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h3><span class="es">Se lee</span><span class="en">Read</span></h3>
+      <div class="cmd"><pre><code><span class="k">sqlarchive</span> <span class="k">inspect</span> <span class="v">Ventas.dbdump.zip</span></code></pre></div>
+      <p class="es">Su <code>manifest.json</code> v1 se mapea a un <code>DatabaseSnapshot</code>,
+        que es un lado del diff. Así <code>verify</code> y la restauración como migración funcionan
+        sobre un archivo que hizo otro, sin un solo caso especial en el resto del código.</p>
+      <p class="en">Its <code>manifest.json</code> v1 maps onto a <code>DatabaseSnapshot</code>,
+        which is one side of the diff. So <code>verify</code> and restore-as-migration work on an
+        archive somebody else made, with no special case anywhere else in the codebase.</p>
+    </div>
+
+    <div class="card">
+      <h3><span class="es">No se escribe</span><span class="en">Not written</span></h3>
+      <div class="warn a">
+        <svg viewBox="0 0 16 16"><path d="M6.46 1.14a1.75 1.75 0 0 1 3.08 0l5.25 9.44A1.75 1.75 0 0 1 13.25 13.2H2.75a1.75 1.75 0 0 1-1.54-2.62ZM8 5a.75.75 0 0 0-.75.75v2.5a.75.75 0 0 0 1.5 0v-2.5A.75.75 0 0 0 8 5Zm0 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"/></svg>
+        <div>
+          <span class="es">Su manifiesto no lleva hash por tabla, así que un <code>verify</code> contra uno suyo compara el esquema y los conteos y ahí se acaba: no puede ver un <code>UPDATE</code>. <code>inspect</code> lo dice en un aviso en vez de disimularlo.</span>
+          <span class="en">Its manifest carries no per-table row hash, so a verify against one compares the schema and the row counts and stops: it cannot see an <code>UPDATE</code>. <code>inspect</code> says so in a banner rather than papering over it.</span>
+        </div>
+      </div>
+      <p class="es">Rellenar ese campo con algo calculado de los ficheros de datos haría que un
+        archivo no verificable pareciera verificado. Por eso SqlArchive no escribe ese formato:
+        mejorar el conteo de filas es la razón por la que existe.</p>
+      <p class="en">Filling that field with something computed from the data files would make an
+        unverifiable archive look verified. That is why SqlArchive does not write the format:
+        improving on the row count is the reason it exists.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 8 COMING -->
+<section id="coming">
+  <div class="head"><span class="n">08</span><h2><span class="es">Lo que viene</span><span class="en">What is coming</span></h2></div>
+  <p class="sub es">Estas opciones están en <code>--help</code> hoy y los verbos se niegan a correr. Se publican para que la forma del comando se pueda discutir antes de que exista, no para que se use.</p>
+  <p class="sub en">These options are in <code>--help</code> today and the verbs refuse to run. They are published so the shape of the command can be argued with before it exists, not so it can be used.</p>
+
+  <div class="card">
+    <h3><code>export</code> <span class="es">— paquete 2.2</span><span class="en">— work package 2.2</span></h3>
+    <div class="cmd"><pre><code><span class="k">sqlarchive</span> <span class="k">export</span> <span class="o">--source</span> <span class="v">"Server=SQL2022;Database=Ventas;..."</span> <span class="o">--out</span> <span class="v">Ventas.sqlarchive</span></code></pre></div>
+    <div class="tbl"><table>
+      <tbody>
+        <tr><td><code>--table &lt;GLOB&gt;</code> · <code>--exclude &lt;GLOB&gt;</code></td><td><span class="es">Filtro de tablas por glob <code>esquema.tabla</code>, repetible.</span><span class="en">Table filter by <code>schema.table</code> glob, repeatable.</span></td></tr>
+        <tr><td><code>--where &lt;TABLA=PREDICADO&gt;</code></td><td><span class="es">Filas de una tabla. Queda escrito en el manifiesto como <code>rowFilter</code>.</span><span class="en">Rows of one table. Written into the manifest as <code>rowFilter</code>.</span></td></tr>
+        <tr><td><code>--schema-only</code></td><td><span class="es">Esquema sin filas. Cada tabla queda marcada <code>dataSkipped</code>.</span><span class="en">Schema, no rows. Every table is marked <code>dataSkipped</code>.</span></td></tr>
+        <tr><td><code>--consistent</code></td><td><span class="es">Un punto en el tiempo: snapshot de base, si no aislamiento SNAPSHOT, y si no <b>se rechaza</b>. No cae en silencio a tabla por tabla.</span><span class="en">One point in time: a database snapshot, else SNAPSHOT isolation, else it <b>refuses</b>. It does not fall back to table-by-table in silence.</span></td></tr>
+        <tr><td><code>--range-size &lt;N&gt;</code> · <code>--maxdop &lt;N&gt;</code></td><td><span class="es">Rangos por tabla grande y tablas en paralelo.</span><span class="en">Ranges within a big table, and tables in parallel.</span></td></tr>
+        <tr><td><code>--resume</code> · <code>--spool &lt;DIR&gt;</code></td><td><span class="es">Retoma por las tablas que faltan. La huella incluye conexión, filtros y versión de formato: reanudar con otros parámetros es un error, no una mezcla.</span><span class="en">Carries on with the tables that are missing. The fingerprint covers connection, filters and format version: resuming with different ones is an error, not a mixture.</span></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <h3><code>import</code> <span class="es">— paquete 2.3</span><span class="en">— work package 2.3</span></h3>
+    <div class="cmd"><pre><code><span class="k">sqlarchive</span> <span class="k">import</span> <span class="v">Ventas.sqlarchive</span> <span class="o">--destination</span> <span class="v">"Server=SQL2022;Database=VentasCopia;..."</span></code></pre></div>
+    <p class="es">Sin banderas de modo, restaurar sobre una base que ya existe <b>es una migración con
+      diff</b>: se compara el esquema y se hace <code>ALTER</code> donde eso conserva las filas, y
+      cada tabla se publica por staging y <code>SWITCH</code>. Un fallo a mitad deja el destino como
+      estaba.</p>
+    <p class="en">With no mode flag, restoring over a database that already exists <b>is a migration
+      with a diff</b>: the schema is compared and <code>ALTER</code>ed where that preserves rows,
+      and each table is published through staging and a <code>SWITCH</code>. A failure halfway
+      leaves the destination as it was.</p>
+    <div class="tbl"><table>
+      <tbody>
+        <tr><td><code>--schema-only</code> · <code>--data-only</code></td><td><span class="es">Los otros dos modos. Son opuestos y pedirlos juntos se rechaza.</span><span class="en">The other two modes. They are opposites and asking for both is refused.</span></td></tr>
+        <tr><td><code>--dry-run</code></td><td><span class="es">Dice qué alteraría y qué publicaría, y no escribe nada. El diff es real; el destino no se toca.</span><span class="en">Says what it would alter and publish, and writes nothing. The diff is real; the destination is not touched.</span></td></tr>
+        <tr><td><code>--continue-on-error</code></td><td><span class="es">Sigue con las demás tablas. Cada tabla es atómica por sí sola.</span><span class="en">Carries on with the other tables. Each table is atomic by itself.</span></td></tr>
+      </tbody>
+    </table></div>
+    <div class="warn g">
+      <svg viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm11.78-1.72a.75.75 0 0 0-1.06-1.06L6.75 9.19 5.28 7.72a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0Z"/></svg>
+      <div>
+        <span class="es"><b>La guardia aquí es exacta, no heurística.</b> SyncJob adivina con un piso de filas porque no sabe cuántas debería haber; aquí el manifiesto lo dice. Si el conteo y el hash de lo preparado no coinciden, esa tabla no se publica — y la que se detiene es esa tabla, no el restore entero.</span>
+        <span class="en"><b>The guard here is exact, not a heuristic.</b> SyncJob guesses with a row floor because it does not know how many rows there should be; here the manifest says. If the count and hash of what was staged do not match, that table is not published — and it is that table that stops, not the whole restore.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3><code>verify</code> <span class="es">— paquete 2.4</span><span class="en">— work package 2.4</span></h3>
+    <p class="es">El mismo manifiesto contesta tres preguntas distintas:</p>
+    <p class="en">One manifest answers three different questions:</p>
+    <div class="tbl"><table>
+      <thead><tr>
+        <th><span class="es">Pregunta</span><span class="en">Question</span></th>
+        <th><span class="es">Cómo</span><span class="en">How</span></th>
+      </tr></thead>
+      <tbody>
+        <tr><td><span class="es">¿El archivo está íntegro?</span><span class="en">Is the archive intact?</span></td><td><code>verify Ventas.sqlarchive</code> — <span class="es">los hashes de fichero contra las entradas. No toca ningún servidor.</span><span class="en">the file hashes against the entries. It touches no server.</span></td></tr>
+        <tr><td><span class="es">¿El destino restaurado coincide?</span><span class="en">Does the restored destination match?</span></td><td><code>--against &lt;CONN&gt;</code> — <span class="es">esquema por diff, y por tabla el conteo y el hash.</span><span class="en">schema by diff, and per table the count and the hash.</span></td></tr>
+        <tr><td><span class="es">¿Una base viva ha derivado?</span><span class="en">Has a live database drifted?</span></td><td><span class="es">Lo mismo, apuntando a producción. Es el uso de auditoría, y es el mismo código.</span><span class="en">The same, pointed at production. That is the audit use, and it is the same code.</span></td></tr>
+      </tbody>
+    </table></div>
+    <p class="es">El veredicto por tabla dice <b>qué</b> difiere: el esquema, el número de filas, o el
+      contenido con el mismo número de filas — que es el caso que un conteo no ve y el que más
+      importa.</p>
+    <p class="en">The verdict per table says <b>what</b> differs: the schema, the row count, or the
+      content with the same row count — which is the case a count cannot see, and the one that
+      matters most.</p>
+  </div>
+</section>
+
+<!-- 9 CHEAT -->
+<section id="cheat">
+  <div class="head"><span class="n">09</span><h2><span class="es">Chuleta</span><span class="en">Cheat sheet</span></h2></div>
+  <p class="sub es">Todo lo que se puede correr hoy cabe en una tarjeta.</p>
+  <p class="sub en">Everything that runs today fits on one card.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h3><span class="es">Funciona</span><span class="en">Works</span></h3>
+      <div class="cmd"><pre><code><span class="k">sqlarchive</span> <span class="o">--version</span>
+<span class="k">sqlarchive</span> <span class="o">--help</span>
+<span class="k">sqlarchive</span> <span class="k">inspect</span> <span class="o">--help</span>
+
+<span class="k">sqlarchive</span> <span class="k">inspect</span> <span class="v">Ventas.sqlarchive</span>
+<span class="k">sqlarchive</span> <span class="k">inspect</span> <span class="v">Ventas.sqlarchive</span> <span class="o">--entries</span>
+<span class="k">sqlarchive</span> <span class="k">inspect</span> <span class="v">Ventas.sqlarchive</span> <span class="o">--json</span>
+<span class="k">sqlarchive</span> <span class="k">inspect</span> <span class="v">Ventas.dbdump.zip</span>
+<span class="k">sqlarchive</span> <span class="k">inspect</span> <span class="v">./unpacked/manifest.json</span></code></pre></div>
+    </div>
+
+    <div class="card">
+      <h3><span class="es">Todavía no</span><span class="en">Not yet</span></h3>
+      <div class="cmd"><pre><code><span class="c"># <span class="es">se niegan, con código de salida 2</span><span class="en">these refuse, with exit code 2</span></span>
+<span class="k">sqlarchive</span> <span class="k">export</span> <span class="o">--source</span> <span class="v">...</span> <span class="o">--out</span> <span class="v">...</span>
+<span class="k">sqlarchive</span> <span class="k">import</span> <span class="v">...</span> <span class="o">--destination</span> <span class="v">...</span>
+<span class="k">sqlarchive</span> <span class="k">verify</span> <span class="v">...</span>
+
+<span class="c"># <span class="es">su ayuda sí sirve, y es la especificación</span><span class="en">their help does work, and is the spec</span></span>
+<span class="k">sqlarchive</span> <span class="k">export</span> <span class="o">--help</span>
+<span class="k">sqlarchive</span> <span class="k">import</span> <span class="o">--help</span>
+<span class="k">sqlarchive</span> <span class="k">verify</span> <span class="o">--help</span></code></pre></div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer><div class="wrap fl">
+  <div>
+    <div><b>PeopleWorks SqlArchive</b> · <span class="es">Licencia</span><span class="en">License</span>
+      <a href="https://github.com/peopleworks/SqlArchive/blob/main/LICENSE">MIT</a></div>
+    <div style="margin-top:6px">
+      <span class="es">Creado por</span><span class="en">Created by</span>
+      <a href="https://github.com/pedrohernandez-xari">Pedro Hernández</a> —
+      PeopleWorks Services, LLC &amp; Xari Technologies
+    </div>
+    <div style="margin-top:6px">
+      <span class="es">La forma del archivo, adoptada de</span><span class="en">Archive shape adopted from</span>
+      <a href="https://github.com/JeePeeTee/dbdumper">dbdumper</a>
+      <span class="es">de JeePee (MIT), con crédito y sin copiar código.</span><span class="en">by JeePee (MIT), with thanks and no code copied.</span>
+    </div>
+  </div>
+  <div style="text-align:right">
+    <div><a href="https://github.com/peopleworks/SqlArchive">Repo</a> ·
+      <a href="https://github.com/peopleworks/SqlArchive/blob/main/FORMAT.md">FORMAT.md</a> ·
+      <a href="https://github.com/peopleworks/SqlArchive/blob/main/DESIGN.md">DESIGN.md</a> ·
+      <a href="https://github.com/peopleworks/SqlArchive/issues">Issues</a></div>
+    <div style="margin-top:6px">
+      <span class="es">Guías hermanas</span><span class="en">Sibling guides</span>:
+      <a href="https://peopleworks.github.io/SqlSchemaDiff/">SQLDiff</a> ·
+      <a href="https://peopleworks.github.io/syncjob/">SyncJob</a> ·
+      <a href="https://peopleworks.github.io/DBFSync/">DBFSync</a></div>
+    <div style="margin-top:6px"><a href="https://dpo.peopleworksservices.com/">DPO — Data Performance Optimizer</a></div>
+  </div>
+</div></footer>
+
+<a href="#" class="up" id="up" aria-label="Top"><svg viewBox="0 0 16 16"><path d="M8 3.5 3 8.5l1.06 1.06L7.25 6.4V13h1.5V6.4l3.19 3.16L13 8.5 8 3.5Z"/></svg></a>
+
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var btns = document.querySelectorAll('.seg button');
+
+  function apply(lang) {
+    root.setAttribute('data-lang', lang);
+    root.setAttribute('lang', lang);
+    btns.forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.set === lang));
+    });
+    try { localStorage.setItem('sqlarchive-lang', lang); } catch (e) {}
+  }
+
+  var saved = null;
+  try { saved = localStorage.getItem('sqlarchive-lang'); } catch (e) {}
+  if (saved !== 'es' && saved !== 'en') {
+    saved = (navigator.language || 'es').toLowerCase().indexOf('es') === 0 ? 'es' : 'en';
+  }
+  apply(saved);
+
+  btns.forEach(function (b) {
+    b.addEventListener('click', function () { apply(b.dataset.set); });
+  });
+
+  // theme: system by default, and the toggle pins a choice
+  var TKEY = 'sqlarchive-theme';
+  var mq = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
+  var tbtns = document.querySelectorAll('[data-theme-set]');
+
+  function paintTheme(pinned) {
+    if (pinned === 'light' || pinned === 'dark') root.setAttribute('data-theme', pinned);
+    else root.removeAttribute('data-theme');
+    var effective = pinned || (mq && mq.matches ? 'dark' : 'light');
+    tbtns.forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.themeSet === effective));
+    });
+  }
+
+  var savedTheme = null;
+  try { savedTheme = localStorage.getItem(TKEY); } catch (e) {}
+  paintTheme(savedTheme === 'light' || savedTheme === 'dark' ? savedTheme : null);
+
+  tbtns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var pick = b.dataset.themeSet;
+      try { localStorage.setItem(TKEY, pick); } catch (e) {}
+      paintTheme(pick);
+    });
+  });
+
+  // keep following the system for as long as nobody has pinned anything
+  if (mq && mq.addEventListener) {
+    mq.addEventListener('change', function () {
+      var s = null;
+      try { s = localStorage.getItem(TKEY); } catch (e) {}
+      if (s !== 'light' && s !== 'dark') paintTheme(null);
+    });
+  }
+
+  // copy buttons
+  var ICON_COPY = '<svg viewBox="0 0 16 16"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>';
+  var ICON_OK = '<svg viewBox="0 0 16 16"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>';
+
+  document.querySelectorAll('.cmd').forEach(function (block) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.innerHTML = ICON_COPY;
+    btn.setAttribute('aria-label', 'Copy');
+    btn.addEventListener('click', function () {
+      // take only the text visible in the active language
+      var clone = block.querySelector('code').cloneNode(true);
+      var hide = root.getAttribute('data-lang') === 'es' ? '.en' : '.es';
+      clone.querySelectorAll(hide).forEach(function (n) { n.remove(); });
+      var text = clone.textContent.replace(/\u00a0/g, ' ');
+      var done = function () {
+        btn.innerHTML = ICON_OK; btn.classList.add('done');
+        setTimeout(function () { btn.innerHTML = ICON_COPY; btn.classList.remove('done'); }, 1400);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () {});
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) {}
+        document.body.removeChild(ta);
+      }
+    });
+    block.appendChild(btn);
+  });
+
+  // back to top
+  var up = document.getElementById('up');
+  addEventListener('scroll', function () {
+    up.classList.toggle('show', scrollY > 700);
+  }, { passive: true });
+})();
+</script>
+</body>
+</html>
