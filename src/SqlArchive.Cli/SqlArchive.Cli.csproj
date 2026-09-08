@@ -5,6 +5,7 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AssemblyName>sqlarchive</AssemblyName>
     <RootNamespace>SqlArchive.Cli</RootNamespace>
     <Version>0.1.0</Version>
@@ -20,7 +21,15 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>sqlarchive</ToolCommandName>
     <PackageTags>sql-server;archive;backup;migration;cli;dotnet-tool</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The tool's page on nuget.org is the first thing most people see of it, and the
+         repository README is the honest description of what works today. Packing it here
+         also silences NU5039's complaint about a package with no readme. -->
+    <None Include="..\..\README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\SqlArchive.Core\SqlArchive.Core.csproj" />
