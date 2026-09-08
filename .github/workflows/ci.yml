@@ -29,8 +29,28 @@ jobs:
       - name: Build
         run: dotnet build SqlArchive.sln -c Release --no-restore
 
+      # Todos los proyectos de prueba menos el de integración, descubiertos y no
+      # listados. Nombrar uno solo hace que un proyecto nuevo no corra nunca y que
+      # nadie se entere: WP 2.5 tuvo que meter las pruebas del CLI en
+      # SqlArchive.Core.Tests precisamente porque era el único que esta línea
+      # ejecutaba.
       - name: Unit tests
-        run: dotnet test tests/SqlArchive.Core.Tests -c Release --no-build --verbosity normal
+        shell: bash
+        run: |
+          set -e
+          shopt -s nullglob
+          projects=(tests/*/*.csproj)
+          ran=0
+          for project in "${projects[@]}"; do
+            case "$project" in *IntegrationTests*) continue;; esac
+            echo "--- $project"
+            dotnet test "$project" -c Release --no-build --verbosity normal
+            ran=$((ran + 1))
+          done
+          if [ "$ran" -eq 0 ]; then
+            echo "::error::No se ejecutó ningún proyecto de pruebas unitarias."
+            exit 1
+          fi
 
       # Un proyecto por línea: `dotnet pack` acepta uno solo, y nombrar dos falla con
       # MSB1008 antes de empaquetar nada. SyncJob lo aprendió con la CI en rojo y el
