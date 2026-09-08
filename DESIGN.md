@@ -242,6 +242,27 @@ mejorar.
 
 ---
 
+## Huecos conocidos, reportados y no cerrados
+
+Los encontró WP 2.2 usando el formato de WP 2.1. Ninguno bloquea nada hoy; los tres se
+resuelven mejor con la cabeza fresca que con prisa.
+
+- **`ArchiveTableEntry.RowCount` es `long` y no puede decir «no sé».** Una tabla con
+  `dataSkipped` queda en 0, que se lee como «cero filas». `DataSkipped` desambigua, pero
+  obliga a un lector a consultarlo *primero*. Un `long?` lo diría solo. Cambiarlo ahora es
+  barato porque nada está publicado.
+- **Los hashes de `schema/*.sql` difieren entre Windows y Linux**, porque
+  `SqlRender.EnsureTrailingGo` usa `Environment.NewLine`. **Deliberadamente no se
+  normaliza:** pasar CRLF a LF cambiaría el texto de un módulo en `sys.sql_modules` tras
+  restaurar, y el diff del import lo leería como deriva. Es cosmético — el hash sólo se
+  compara contra su propio archivo — pero conviene que esté escrito.
+- **Para SqlSchemaDiff 1.8:** `SqlServerSchemaExtractor.ExtractAsync` sólo acepta una cadena
+  de conexión, así que bajo `snapshot-isolation` el esquema se lee **fuera** de la
+  transacción y no comparte instante con los datos. Bajo `snapshot` no ocurre, porque la
+  base entera está congelada. Es un hueco de API del motor de esquema, no del formato.
+
+---
+
 ## Paquetes de trabajo
 
 | | Qué | Depende de |

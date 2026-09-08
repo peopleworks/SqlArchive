@@ -99,10 +99,25 @@ public sealed class ExportCommand : AsyncCommand<ExportCommand.Settings>
         }
     }
 
+    // El motor ya existe: SqlArchive.Core.Export, entregado por WP 2.2 y probado contra un
+    // servidor real. Lo que falta es este cable, y el mapeo es directo:
+    //
+    //     --source        -> ExportRequest.ConnectionString
+    //     --out           -> el fichero que abre ArchiveWriter
+    //     --table         -> IncludeTables          --exclude   -> ExcludeTables
+    //     --where T=PRED  -> RowFilters             --consistent-> Consistency
+    //     --schema-only   -> ExcludeData = ["*"]    --range-size-> RowsPerRange
+    //     --spool         -> WorkingDirectory       --resume    -> Resumable
+    //
+    // Un matiz que no se ve en la tabla y que costaria una tarde descubrir: el --maxdop de
+    // este comando dice "tablas a la vez", y el Parallelism del motor cuenta *unidades*
+    // -- rangos de tabla. Son lo mismo solo mientras ninguna tabla se parta, y contarlo
+    // por tablas es justo lo que impide que una tabla grande use el paralelismo.
     public override Task<int> ExecuteAsync(CommandContext context, Settings settings) =>
         throw new NotBuiltYetException(
             "export",
             "2.2",
-            "Reading a database into an archive - the filters, the ranges, the resumable spool, the consistency " +
-            "modes and the hashes - is being written now against the format that work package 2.1 fixed.");
+            "The engine that reads a database into an archive is built and tested - the filters, the ranges, " +
+            "the resumable spool, the consistency modes and the hashes. What is missing is the wiring between " +
+            "this command and it, and the mapping is written in a comment beside this line.");
 }
