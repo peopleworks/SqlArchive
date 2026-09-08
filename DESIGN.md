@@ -95,13 +95,24 @@ reportaría diferencias que no son diferencias.
 
 Ésta es la decisión de la que cuelga todo lo demás, así que va explícita.
 
-**El hash de una tabla es el XOR de los SHA-256 de cada línea JSONL canónica de esa tabla.**
+**El hash de una tabla es la suma módulo 2²⁵⁶ de los SHA-256 de cada línea JSONL canónica
+de esa tabla.**
+
+> **Corregido el 7 de septiembre, después de escribir esto.** Aquí decía *XOR*, y WP 2.1
+> lo refutó al implementarlo. El XOR es una involución, así que dos contribuciones
+> idénticas se cancelan — y el problema no es el caso evidente que el conteo de filas sí
+> atrapa, sino que **`{A,A,B,B}` y `{C,C,D,D}` dan cero los dos, con cuatro filas cada
+> uno**. Un restore que copió un rango dos veces y se dejó otro aterriza justo ahí, y una
+> tabla sin clave primaria es justo donde viven las filas duplicadas. La suma conserva
+> todas las propiedades que hacían falta y no tiene involución. El razonamiento entero
+> está en `FORMAT.md`, bajo *Why the sum and not XOR*.
 
 Tres consecuencias, y las tres son el motivo:
 
 1. **No depende del orden.** El export lee en paralelo por rangos y `verify` puede leer en
-   otro orden; el XOR da el mismo resultado. Un hash que dependiera del orden obligaría a
-   ordenar las dos lecturas, que en una tabla grande es el coste dominante.
+   otro orden; la suma da el mismo resultado, y también da el mismo si se suma por
+   particiones y luego se suman las particiones. Un hash que dependiera del orden
+   obligaría a ordenar las dos lecturas, que en una tabla grande es el coste dominante.
 2. **No depende de SQL Server.** La igualdad la define el formato del archivo, no el
    servidor: la misma fila exportada desde 2016 y desde 2022, con distinta collation en la
    conexión, produce el mismo byte a byte porque la codificación de valores es nuestra.
@@ -115,6 +126,14 @@ siendo mil filas. **No dice qué fila cambió**, y esa es la limitación aceptad
 un manifiesto que ocupa bytes por tabla en vez de tanto como los datos. Si un día hace
 falta reconciliar fila por fila, se añade un modo opcional que guarde los hashes por fila
 en un fichero aparte, no en el manifiesto.
+
+**Tres familias de columnas no viajan**, y por la misma razón las tres: el servidor las
+escribe él y rechaza que se las escriban. Un `rowversion` recibe uno nuevo al restaurar;
+las columnas de período de una tabla versionada se rechazan **incluso con
+`SYSTEM_VERSIONING = OFF`**, que es el estado en el que un restore carga filas; y una
+columna calculada no tiene valor propio. Llevarlas haría que `verify` no pudiera pasar
+nunca sobre una tabla que las tenga. El manifiesto las declara en `omittedColumns` para
+que su ausencia sea un hecho registrado y no un hueco.
 
 **La tabla de codificación de valores es normativa**, no un detalle de implementación: es
 la definición de la igualdad. Se adopta la de dbdumper — decimales como texto, fechas ISO
