@@ -238,7 +238,7 @@ public sealed class ExportFingerprint
             .Append("where=").AppendJoin(',', options.RowFilters.Select(f => $"{f.Key}=>{f.Value}")).Append(Separator)
             .Append("consistent=").Append(options.Consistent).Append(Separator)
             .Append("ranges=").Append(options.Ranges).Append(Separator)
-            .Append("split=").Append(options.MinimumRowsToSplit.ToString(CultureInfo.InvariantCulture)).Append(Separator)
+            .Append("split=").Append(options.SplitThreshold.ToString(CultureInfo.InvariantCulture)).Append(Separator)
             .Append("perRange=").Append(options.RowsPerRange.ToString(CultureInfo.InvariantCulture)).Append(Separator)
             .Append("maxRanges=").Append(options.MaxRangesPerTable.ToString(CultureInfo.InvariantCulture))
             .ToString();

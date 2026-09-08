@@ -358,10 +358,12 @@ public sealed class ExportLiveTests
 
         try
         {
+            // Ranges left at Auto, which is the default and what the CLI's --range-size
+            // reaches: asking for ranges of fifty rows is asking for a table of six
+            // hundred to be split, and it is.
             var result = await new DatabaseExporter(new ExportOptions
             {
                 ConnectionString = source,
-                Ranges = ExportRanges.Always,
                 RowsPerRange = 50,
                 MaxRangesPerTable = 16
             }).ExportAsync(path);

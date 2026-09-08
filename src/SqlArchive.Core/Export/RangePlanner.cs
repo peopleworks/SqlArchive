@@ -154,7 +154,7 @@ public static class RangePlanner
         if(key is null || options.Ranges == ExportRanges.Off)
             return [TableRange.Whole];
 
-        if(options.Ranges == ExportRanges.Auto && estimatedRows < options.MinimumRowsToSplit)
+        if(options.Ranges == ExportRanges.Auto && estimatedRows < options.SplitThreshold)
             return [TableRange.Whole];
 
         var wanted = Wanted(estimatedRows, options);

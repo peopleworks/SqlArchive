@@ -198,6 +198,23 @@ public sealed class ExportSelectionTests
     }
 
     /// <summary>
+    /// Asking for ranges of a thousand rows splits a table of five thousand, which is
+    /// what asking for that plainly means. With a floor of its own the two are separate
+    /// knobs again: aim for this many a file, and do not bother under that many at all.
+    /// </summary>
+    [Fact]
+    public void TheRangeSizeIsAlsoTheFloorUnlessAFloorIsNamed()
+    {
+        Assert.Equal(1_000, new ExportOptions { ConnectionString = "x", RowsPerRange = 1_000 }.SplitThreshold);
+        Assert.Equal(1_000_000, new ExportOptions { ConnectionString = "x" }.SplitThreshold);
+
+        Assert.Equal(
+            5_000_000,
+            new ExportOptions { ConnectionString = "x", RowsPerRange = 100_000, MinimumRowsToSplit = 5_000_000 }
+                .SplitThreshold);
+    }
+
+    /// <summary>
     /// The working directory is deleted whole when a run is not resumable, and a caller
     /// can name it. A directory holding something an export did not put there is refused
     /// rather than emptied.

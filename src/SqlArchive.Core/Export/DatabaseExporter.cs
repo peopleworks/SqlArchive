@@ -215,7 +215,7 @@ public sealed class DatabaseExporter
                 entry.PartitionKind = Bounds.Name(PartitionKinds.Of(key.Column.Kind)!.Value);
                 entry.PartitionReason = key.Reason;
             }
-            else if(key is null && estimate >= _options.MinimumRowsToSplit && _options.Ranges != ExportRanges.Off)
+            else if(key is null && estimate >= _options.SplitThreshold && _options.Ranges != ExportRanges.Off)
             {
                 notices.Add(
                     $"{identifier} has about {estimate.ToString("N0", CultureInfo.InvariantCulture)} rows and is " +

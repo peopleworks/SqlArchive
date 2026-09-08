@@ -74,11 +74,21 @@ public sealed class ExportOptions
     /// A table with fewer rows than this is read in one pass whatever else is set. The
     /// count is the catalog's estimate, which costs no scan; it decides how many files
     /// are written and never which rows go in them.
+    /// <para>
+    /// Null, the default, means one range's worth - <see cref="RowsPerRange"/>. So asking
+    /// for ranges of a thousand rows splits a table of five thousand into five, which is
+    /// what asking for that plainly means. Set it to hold a floor independent of the
+    /// range size: "aim for a hundred thousand rows a file, and do not bother splitting a
+    /// table under five million" is the two of them together.
+    /// </para>
     /// </summary>
-    public long MinimumRowsToSplit { get; init; } = 1_000_000;
+    public long? MinimumRowsToSplit { get; init; }
 
     /// <summary>Roughly how many rows a range should hold, which is what decides how many there are.</summary>
     public long RowsPerRange { get; init; } = 1_000_000;
+
+    /// <summary>The floor in force, which is <see cref="RowsPerRange"/> unless one was named.</summary>
+    public long SplitThreshold => MinimumRowsToSplit ?? RowsPerRange;
 
     /// <summary>The ceiling on ranges per table, so a huge table does not become a thousand entries.</summary>
     public int MaxRangesPerTable { get; init; } = 16;
@@ -144,7 +154,7 @@ public enum ExportRanges
 {
     /// <summary>
     /// Split a table when it is big enough to be worth it and there is a column to split
-    /// by. What "big enough" means is <see cref="ExportOptions.MinimumRowsToSplit"/>.
+    /// by. What "big enough" means is <see cref="ExportOptions.SplitThreshold"/>.
     /// </summary>
     Auto,
 
