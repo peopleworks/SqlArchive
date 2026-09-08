@@ -198,6 +198,71 @@ public sealed class FormatRoundTripLiveTests
     }
 
     /// <summary>
+    /// A line read out of a real server, pinned to a literal.
+    /// <para>
+    /// The round-trip test above cannot catch an encoding that is wrong in the same way
+    /// on both sides - it reads, writes, reads again, and compares what this build
+    /// produced with what this build produced, which is exactly the trap the work package
+    /// warns about. Writing money as <c>SqlMoney.ToString()</c> passes it. So one row has
+    /// its bytes written down here, where changing them means changing this file on
+    /// purpose.
+    /// </para>
+    /// </summary>
+    [LiveFact]
+    public async Task ARowFromARealServerHasTheseExactBytes()
+    {
+        var source = await _server.CreateDatabaseAsync();
+
+        await SqlServerFixture.ExecuteAsync(source, """
+            CREATE TABLE dbo.Pinned (
+                [Money]      money             NOT NULL,
+                [SmallMoney] smallmoney        NOT NULL,
+                [Numeric]    numeric(19,4)     NOT NULL,
+                [Decimal38]  decimal(38,10)    NOT NULL,
+                [Float]      float             NOT NULL,
+                [Real]       real              NOT NULL,
+                [Bit]        bit               NOT NULL,
+                [Guid]       uniqueidentifier  NOT NULL,
+                [Date]       date              NOT NULL,
+                [Time]       time(7)           NOT NULL,
+                [DateTime]   datetime          NOT NULL,
+                [DateTime2]  datetime2(7)      NOT NULL,
+                [Offset]     datetimeoffset(7) NOT NULL,
+                [Binary]     varbinary(8)      NOT NULL,
+                [Text]       nvarchar(50)      NOT NULL
+            );
+            """);
+
+        await SqlServerFixture.ExecuteAsync(source, """
+            INSERT INTO dbo.Pinned VALUES (
+                1, 1, 1, 1,
+                0.1, 0.1,
+                1,
+                '3F2504E0-4F89-11D3-9A0C-0305E82C3301',
+                '2026-01-15', '10:00:00.1234567',
+                '2026-01-15T10:00:00.003', '2026-01-15T10:00:00.1234567',
+                '2026-01-15T10:00:00.1234567+02:00',
+                0xDEADBEEF,
+                N'a' + NCHAR(0x00F1) + NCHAR(0xD83D) + NCHAR(0xDE00));
+            """);
+
+        await using var connection = new SqlConnection(source);
+        await connection.OpenAsync();
+        await using var command = new SqlCommand("SELECT * FROM dbo.Pinned", connection);
+        await using DbDataReader reader = await command.ExecuteReaderAsync();
+
+        Assert.True(await reader.ReadAsync());
+
+        var columns = ArchiveColumns.ForReader(reader);
+        var buffer = new CanonicalJsonBuffer();
+        RowEncoder.Encode(columns, reader, buffer);
+
+        Assert.Equal(
+            """{"Money":"1.0000","SmallMoney":"1.0000","Numeric":"1.0000","Decimal38":"1.0000000000","Float":0.1,"Real":0.1,"Bit":true,"Guid":"3f2504e0-4f89-11d3-9a0c-0305e82c3301","Date":"2026-01-15","Time":"10:00:00.1234567","DateTime":"2026-01-15T10:00:00.003","DateTime2":"2026-01-15T10:00:00.1234567","Offset":"2026-01-15T10:00:00.1234567+02:00","Binary":"3q2+7w==","Text":"añ😀"}""",
+            Encoding.UTF8.GetString(buffer.WrittenSpan));
+    }
+
+    /// <summary>
     /// The two ways of describing a table's columns have to agree, or export and restore
     /// would encode the same row differently. One reads a snapshot, the other reads a
     /// live result set, and neither knows about the other.
