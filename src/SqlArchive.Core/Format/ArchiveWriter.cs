@@ -86,7 +86,10 @@ public sealed class ArchiveWriter : IAsyncDisposable
             throw new ArchiveFormatException($"The archive already has an entry named '{entryName}'.");
 
         var entry = _zip.CreateEntry(entryName, Level);
-        return new HashingStream(entry.Open(), entryName, this);
+        // El stream compartido de este mismo paquete, no una copia. Registra el hash
+        // al cerrarse, que es cuando ha visto todos los bytes.
+        return new HashingWriteStream(
+            entry.Open(), leaveOpen: false, onCompleted: hash => _hashes[entryName] = hash);
     }
 
     /// <summary>Writes a whole entry from text. For the schema phases and the README.</summary>
@@ -136,92 +139,4 @@ public sealed class ArchiveWriter : IAsyncDisposable
             await _file.DisposeAsync().ConfigureAwait(false);
     }
 
-    private void Record(string entryName, byte[] hash) =>
-        _hashes[entryName] = ArchiveFormat.HashPrefix + Convert.ToHexStringLower(hash);
-
-    /// <summary>
-    /// Feeds everything written through a SHA-256 on the way to the compressor, so the
-    /// manifest's file hashes cost one pass over bytes that are in cache anyway.
-    /// </summary>
-    private sealed class HashingStream : Stream
-    {
-        private readonly Stream _inner;
-        private readonly string _entryName;
-        private readonly ArchiveWriter _owner;
-        private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-
-        private bool _closed;
-
-        public HashingStream(Stream inner, string entryName, ArchiveWriter owner)
-        {
-            _inner = inner;
-            _entryName = entryName;
-            _owner = owner;
-        }
-
-        public override bool CanRead => false;
-        public override bool CanSeek => false;
-        public override bool CanWrite => true;
-        public override long Length => throw new NotSupportedException();
-
-        public override long Position
-        {
-            get => throw new NotSupportedException();
-            set => throw new NotSupportedException();
-        }
-
-        public override void Write(byte[] buffer, int offset, int count) =>
-            Write(buffer.AsSpan(offset, count));
-
-        public override void Write(ReadOnlySpan<byte> buffer)
-        {
-            _hash.AppendData(buffer);
-            _inner.Write(buffer);
-        }
-
-        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            _hash.AppendData(buffer.Span);
-            await _inner.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
-        }
-
-        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
-            WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
-
-        public override void Flush() => _inner.Flush();
-
-        public override Task FlushAsync(CancellationToken cancellationToken) => _inner.FlushAsync(cancellationToken);
-
-        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-
-        public override void SetLength(long value) => throw new NotSupportedException();
-
-        protected override void Dispose(bool disposing)
-        {
-            if(disposing && !_closed)
-            {
-                _closed = true;
-                _inner.Dispose();
-                _owner.Record(_entryName, _hash.GetHashAndReset());
-                _hash.Dispose();
-            }
-
-            base.Dispose(disposing);
-        }
-
-        public override async ValueTask DisposeAsync()
-        {
-            if(!_closed)
-            {
-                _closed = true;
-                await _inner.DisposeAsync().ConfigureAwait(false);
-                _owner.Record(_entryName, _hash.GetHashAndReset());
-                _hash.Dispose();
-            }
-
-            await base.DisposeAsync().ConfigureAwait(false);
-        }
-    }
 }

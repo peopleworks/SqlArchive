@@ -128,7 +128,13 @@ public static class ArchiveReadme
     {
         ArchiveConsistency.Snapshot => "from a database snapshot - every table at the same instant",
         ArchiveConsistency.SnapshotIsolation => "through one connection under SNAPSHOT isolation - every table at the same instant",
-        _ => "table by table - each table is consistent in itself, and two tables may be moments apart"
+        // Not "each table is consistent in itself". That was written before ranges
+        // existed and it was never quite true even then: under READ COMMITTED a long
+        // scan can see rows committed after it started. Reading a large table in
+        // parallel ranges widens a window that was already open, and an archive that
+        // overstates its own consistency is worse than one that admits it, because the
+        // overstatement is what someone relies on years later.
+        _ => "table by table, and a large table range by range - rows within one table may be moments apart, and two tables more so"
     };
 
     private static string Invariant(FormattableString text) => text.ToString(CultureInfo.InvariantCulture);

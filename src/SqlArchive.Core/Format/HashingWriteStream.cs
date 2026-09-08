@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using SqlArchive.Core.Format;
 
-namespace SqlArchive.Core.Export;
+namespace SqlArchive.Core.Format;
 
 /// <summary>
 /// Passes everything written through to another stream and hashes it on the way.
@@ -23,17 +23,28 @@ public sealed class HashingWriteStream : Stream
 {
     private readonly Stream _inner;
     private readonly bool _leaveOpen;
+    private readonly Action<string>? _onCompleted;
     private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 
     private long _bytes;
     private string? _final;
 
-    public HashingWriteStream(Stream inner, bool leaveOpen = true)
+    /// <param name="inner">The stream the bytes go to. The hash costs one pass over them on the way.</param>
+    /// <param name="leaveOpen">False to dispose <paramref name="inner"/> with this stream.</param>
+    /// <param name="onCompleted">
+    /// Called once with the final hash when the stream closes, for a caller that records
+    /// hashes by name rather than reading them back one at a time. It is what lets
+    /// <see cref="ArchiveWriter"/> use this instead of keeping its own copy - and two
+    /// implementations of the thing that defines an archive's integrity is exactly the
+    /// shape of bug this family has paid for before.
+    /// </param>
+    public HashingWriteStream(Stream inner, bool leaveOpen = true, Action<string>? onCompleted = null)
     {
         ArgumentNullException.ThrowIfNull(inner);
 
         _inner = inner;
         _leaveOpen = leaveOpen;
+        _onCompleted = onCompleted;
     }
 
     /// <summary>How many bytes went through.</summary>
@@ -93,8 +104,9 @@ public sealed class HashingWriteStream : Stream
         {
             // Finalised before the hash object goes, so a caller reading Hash after the
             // stream is disposed - which is the normal way round - gets an answer.
-            _ = Hash;
+            var hash = Hash;
             _hash.Dispose();
+            _onCompleted?.Invoke(hash);
 
             if(!_leaveOpen)
                 _inner.Dispose();

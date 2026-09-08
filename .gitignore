@@ -39,3 +39,6 @@ QUICKSTART_INCREMENTAL.bat
 # Internal planning docs
 ROADMAP-NEXT-SESSION.md
 AGENTS.md
+
+# Worktrees de los paquetes de trabajo. Ver work-package-process.
+wt/
