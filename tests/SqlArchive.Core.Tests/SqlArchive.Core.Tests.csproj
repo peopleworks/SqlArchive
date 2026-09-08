@@ -20,6 +20,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SqlArchive.Core\SqlArchive.Core.csproj" />
+    <!-- The CLI is tested here rather than in a project of its own so that the one
+         `dotnet test` CI already runs covers it. A second test project would need a
+         second line in ci.yml, and a test suite that CI does not run is not a suite. -->
+    <ProjectReference Include="..\..\src\SqlArchive.Cli\SqlArchive.Cli.csproj" />
   </ItemGroup>
 
   <ItemGroup>

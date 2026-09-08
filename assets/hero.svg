@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600"
+     role="img" aria-labelledby="sqlarchive-hero-title sqlarchive-hero-desc">
+  <title id="sqlarchive-hero-title">PeopleWorks SqlArchive — a SQL Server database as a readable archive, and a hash that proves two databases match</title>
+  <desc id="sqlarchive-hero-desc">Diagram in three panels. On the left, a source SQL Server database. An arrow labelled export leads to the middle panel, the archive: a zip named Ventas.sqlarchive holding manifest.json, which carries a full schema snapshot and, per table, the row count and a content hash; numbered schema phases from 010_schemas.sql through 040_tables.sql, 070_foreignkeys.sql to 090_finalize.sql, executable by hand in that order; and one JSONL file per table, one row per line in UTF-8, with a large table split into numbered range files. An arrow labelled import leads to the right panel, the destination, where restoring over a database that already exists is a schema diff that alters in place where that preserves rows, and each table is published through staging and an ALTER TABLE SWITCH. Below, a band titled verify, what a row count cannot see: after a thousand rows are updated, the row count still reads one thousand on both sides and reports no difference, while the row hash reads 9f2c and 41ab on the two sides and reports that the content differs.</desc>
+
+  <defs>
+    <marker id="sqlarchive-arrow" viewBox="0 0 10 10" refX="8.5" refY="5"
+            markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#3D5A8A"/>
+    </marker>
+    <linearGradient id="sqlarchive-rule" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="0.55" stop-color="#8B5CF6"/>
+      <stop offset="1" stop-color="#0B1220"/>
+    </linearGradient>
+  </defs>
+
+  <!-- contained background: identical in GitHub light and dark themes -->
+  <rect x="0" y="0" width="1200" height="600" rx="20" fill="#0B1220"/>
+  <rect x="0.75" y="0.75" width="1198.5" height="598.5" rx="19.25" fill="none" stroke="#1E2C46" stroke-width="1.5"/>
+
+  <!-- header -->
+  <g font-family="Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif">
+    <text x="44" y="56" font-size="28" font-weight="700" fill="#E9EFFA">PeopleWorks SqlArchive</text>
+    <text x="44" y="84" font-size="15" fill="#93A4C0">a whole database as a file you can read   ·   restore as a migration   ·   prove the two match</text>
+
+    <rect x="962" y="42" width="112" height="30" rx="15" fill="#0C2230" stroke="#1C6F84"/>
+    <text x="1018" y="62" font-size="13" font-weight="600" fill="#67E8F9" text-anchor="middle">SQL Server</text>
+
+    <rect x="1086" y="42" width="72" height="30" rx="15" fill="#171436" stroke="#3A2F72"/>
+    <text x="1122" y="62" font-size="13" font-weight="600" fill="#A78BFA" text-anchor="middle">.NET 9</text>
+  </g>
+  <rect x="44" y="102" width="360" height="2" rx="1" fill="url(#sqlarchive-rule)"/>
+
+  <!-- ============================ panels ============================ -->
+  <g fill="#121C30" stroke="#22304C" stroke-width="1.25">
+    <rect x="40"  y="126" width="212" height="264" rx="14"/>
+    <rect x="300" y="126" width="520" height="264" rx="14"/>
+    <rect x="868" y="126" width="292" height="264" rx="14"/>
+  </g>
+
+  <g font-family="Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif"
+     font-size="12" font-weight="700" letter-spacing="1.6" fill="#8FA3C4" text-anchor="middle">
+    <text x="146"  y="156">SOURCE</text>
+    <text x="560"  y="156">THE ARCHIVE</text>
+    <text x="1014" y="156">DESTINATION</text>
+  </g>
+
+  <!-- source database -->
+  <g>
+    <ellipse cx="146" cy="200" rx="52" ry="15" fill="#16233C" stroke="#2A3C5E" stroke-width="1.25"/>
+    <path d="M94 200 v54 a52 15 0 0 0 104 0 v-54" fill="#16233C" stroke="#2A3C5E" stroke-width="1.25"/>
+    <ellipse cx="146" cy="254" rx="52" ry="15" fill="none" stroke="#2A3C5E" stroke-width="1.25"/>
+    <ellipse cx="146" cy="227" rx="52" ry="15" fill="none" stroke="#22304C" stroke-width="1"/>
+  </g>
+  <g font-family="Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif" text-anchor="middle">
+    <text x="146" y="232" font-size="15" font-weight="700" fill="#E9EFFA">Ventas</text>
+    <text x="146" y="300" font-size="13" fill="#93A4C0">schema, rows, and the</text>
+    <text x="146" y="318" font-size="13" fill="#93A4C0">shape of every table</text>
+    <text x="146" y="352" font-size="12" font-family="Cascadia Mono, Consolas, monospace" fill="#3D5A8A">read table by table,</text>
+    <text x="146" y="368" font-size="12" font-family="Cascadia Mono, Consolas, monospace" fill="#3D5A8A">or at one instant</text>
+  </g>
+
+  <!-- export arrow -->
+  <line x1="258" y1="258" x2="292" y2="258" stroke="#3D5A8A" stroke-width="2" marker-end="url(#sqlarchive-arrow)"/>
+  <text x="275" y="244" font-size="12" font-weight="700" font-family="Cascadia Mono, Consolas, monospace"
+        fill="#67E8F9" text-anchor="middle">export</text>
+
+  <!-- the archive -->
+  <rect x="324" y="170" width="472" height="34" rx="8" fill="#0C2230" stroke="#1C6F84"/>
+  <text x="342" y="192" font-size="14" font-weight="700" font-family="Cascadia Mono, Consolas, monospace" fill="#67E8F9">Ventas.sqlarchive</text>
+  <text x="778" y="192" font-size="12" font-family="Cascadia Mono, Consolas, monospace" fill="#1C6F84" text-anchor="end">zip</text>
+
+  <g font-family="Cascadia Mono, Consolas, monospace" font-size="13">
+    <text x="342" y="228" fill="#FCD34D">manifest.json</text>
+    <text x="556" y="228" fill="#8FA3C4">schema snapshot · rows + hash</text>
+
+    <text x="342" y="252" fill="#CFE0F5">schema/010_schemas.sql</text>
+    <text x="342" y="272" fill="#CFE0F5">schema/040_tables.sql</text>
+    <text x="556" y="272" fill="#8FA3C4">executable by hand, in order</text>
+    <text x="342" y="292" fill="#CFE0F5">schema/070_foreignkeys.sql</text>
+    <text x="342" y="312" fill="#CFE0F5">schema/090_finalize.sql</text>
+
+    <text x="342" y="340" fill="#6EE7B7">data/dbo.Customer.jsonl</text>
+    <text x="556" y="340" fill="#8FA3C4">one row per line, UTF-8</text>
+    <text x="342" y="360" fill="#6EE7B7">data/dbo.Order.0000.jsonl</text>
+    <text x="556" y="360" fill="#8FA3C4">a big table, in ranges</text>
+  </g>
+
+  <!-- import arrow -->
+  <line x1="826" y1="258" x2="860" y2="258" stroke="#3D5A8A" stroke-width="2" marker-end="url(#sqlarchive-arrow)"/>
+  <text x="843" y="244" font-size="12" font-weight="700" font-family="Cascadia Mono, Consolas, monospace"
+        fill="#67E8F9" text-anchor="middle">import</text>
+
+  <!-- destination -->
+  <g>
+    <ellipse cx="1014" cy="200" rx="52" ry="15" fill="#16233C" stroke="#2A3C5E" stroke-width="1.25"/>
+    <path d="M962 200 v54 a52 15 0 0 0 104 0 v-54" fill="#16233C" stroke="#2A3C5E" stroke-width="1.25"/>
+    <ellipse cx="1014" cy="254" rx="52" ry="15" fill="none" stroke="#2A3C5E" stroke-width="1.25"/>
+    <ellipse cx="1014" cy="227" rx="52" ry="15" fill="none" stroke="#22304C" stroke-width="1"/>
+  </g>
+  <g font-family="Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif" text-anchor="middle">
+    <text x="1014" y="232" font-size="15" font-weight="700" fill="#E9EFFA">already there</text>
+    <text x="1014" y="300" font-size="13" fill="#93A4C0">not a drop. a schema diff that</text>
+    <text x="1014" y="318" font-size="13" fill="#93A4C0">ALTERs where rows survive,</text>
+    <text x="1014" y="336" font-size="13" fill="#93A4C0">then one table at a time:</text>
+  </g>
+  <rect x="912" y="348" width="204" height="26" rx="8" fill="#0B2119" stroke="#1E6B4C"/>
+  <text x="1014" y="366" font-size="12" font-weight="600" font-family="Cascadia Mono, Consolas, monospace"
+        fill="#6EE7B7" text-anchor="middle">stage → guard → SWITCH</text>
+
+  <!-- ============================ the verify band ============================ -->
+  <rect x="40" y="414" width="1120" height="138" rx="14" fill="#101A2E" stroke="#22304C" stroke-width="1.25"/>
+
+  <g font-family="Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif">
+    <text x="64" y="444" font-size="12" font-weight="700" letter-spacing="1.6" fill="#8FA3C4">VERIFY — WHAT A ROW COUNT CANNOT SEE</text>
+    <text x="1136" y="444" font-size="13" fill="#93A4C0" text-anchor="end">1,000 rows were UPDATEd. Nothing was inserted and nothing was deleted.</text>
+  </g>
+
+  <!-- row count: blind -->
+  <rect x="64" y="458" width="1072" height="38" rx="9" fill="#2A1315" stroke="#8C3134"/>
+  <g font-family="Cascadia Mono, Consolas, monospace" font-size="13">
+    <text x="84" y="482" fill="#FCA5A5" font-weight="700">row count</text>
+    <text x="200" y="482" fill="#CFE0F5">1,000</text>
+    <text x="268" y="482" fill="#FCA5A5" font-weight="700">=</text>
+    <text x="296" y="482" fill="#CFE0F5">1,000</text>
+  </g>
+  <text x="1116" y="482" font-size="13" font-family="Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif"
+        fill="#FCA5A5" text-anchor="end">reports no difference — and it is wrong</text>
+
+  <!-- row hash: sees it -->
+  <rect x="64" y="504" width="1072" height="38" rx="9" fill="#0B2119" stroke="#1E6B4C"/>
+  <g font-family="Cascadia Mono, Consolas, monospace" font-size="13">
+    <text x="84" y="528" fill="#6EE7B7" font-weight="700">row hash</text>
+    <text x="200" y="528" fill="#CFE0F5">9f2c…</text>
+    <text x="268" y="528" fill="#6EE7B7" font-weight="700">≠</text>
+    <text x="296" y="528" fill="#CFE0F5">41ab…</text>
+  </g>
+  <text x="1116" y="528" font-size="13" font-family="Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif"
+        fill="#6EE7B7" text-anchor="end">the content differs — same rows, different data</text>
+
+  <!-- footnote -->
+  <text x="600" y="578" font-size="12" font-family="Cascadia Mono, Consolas, monospace"
+        fill="#3D5A8A" text-anchor="middle">a table's hash is the sum, mod 2^256, of the SHA-256 of each canonical JSONL line — order-independent, and not SQL Server's opinion</text>
+</svg>
