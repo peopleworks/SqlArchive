@@ -85,41 +85,28 @@ internal static class Program
             .WithExample("inspect", "Ventas.sqlarchive", "--json");
 
         config.AddCommand<ExportCommand>("export")
-            .WithDescription("Read a database into an archive. Not built yet - work package 2.2.")
+            .WithDescription("Read a database into an archive: the schema, the rows, and a hash of each table.")
             .WithExample("export", "--source", "Server=SQL2022;Database=Ventas;Integrated Security=true", "--out", "Ventas.sqlarchive");
 
         config.AddCommand<ImportCommand>("import")
-            .WithDescription("Restore an archive, as a migration over what is already there. Not built yet - work package 2.3.")
+            .WithDescription("Restore an archive, as a migration over what is already there rather than as a drop.")
             .WithExample("import", "Ventas.sqlarchive", "--destination", "Server=SQL2022;Database=VentasCopia;Integrated Security=true");
 
         config.AddCommand<VerifyCommand>("verify")
-            .WithDescription("Prove an archive is intact, or that a database still matches it. Not built yet - work package 2.4.")
+            .WithDescription("Prove an archive is intact, or that a database still matches it down to the row.")
             .WithExample("verify", "Ventas.sqlarchive")
             .WithExample("verify", "Ventas.sqlarchive", "--against", "Server=SQL2022;Database=Ventas;Integrated Security=true");
     }
 
     /// <summary>
-    /// One place decides what the process returns, so that "this cannot be done yet",
-    /// "you asked for something impossible" and "it broke" are three different answers
-    /// rather than one exit code and three paragraphs.
+    /// One place decides what the process returns, so that "you asked for something
+    /// impossible" and "it broke" are two different answers rather than one exit code
+    /// and two paragraphs.
     /// </summary>
     private static int Report(Exception exception)
     {
         switch(exception)
         {
-            case NotBuiltYetException pending:
-                AnsiConsole.WriteLine();
-
-                AnsiConsole.Write(
-                    new Panel(new Markup(pending.Message.EscapeMarkup()))
-                        .Header($" {pending.Verb} - work package {pending.WorkPackage} ")
-                        .Border(BoxBorder.Rounded)
-                        .BorderColor(Color.Yellow)
-                        .Expand());
-
-                AnsiConsole.WriteLine();
-                return ExitCodes.NotBuiltYet;
-
             // Spectre's own: a flag that does not exist, a value that failed the
             // settings' own Validate, an example that no longer parses. It renders these
             // better than a stack trace can, and taking over the handler is what would

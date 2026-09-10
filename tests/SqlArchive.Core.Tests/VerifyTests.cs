@@ -23,13 +23,13 @@ namespace SqlArchive.Core.Tests;
 /// The collection is the one xunit builds for <c>CliTests</c>, which is what its
 /// generated name spells. Both classes drive the same entry point, and
 /// <c>CliTests</c> swaps the static console while it runs and asserts on the whole of
-/// what it captured; sharing a collection is what stops the two from writing into each
-/// other. <c>verify</c> itself renders through the console Spectre hands it rather than
+/// what it captured; sharing <see cref="ConsoleCollection"/> is what stops the two from
+/// writing into each other. <c>verify</c> itself renders through the console Spectre hands it rather than
 /// the static one, so only the error paths, which go through the exception handler,
 /// still depend on this.
 /// </para>
 /// </summary>
-[Collection("Test collection for SqlArchive.Core.Tests.CliTests")]
+[Collection(ConsoleCollection.Name)]
 public sealed class VerifyTests : IDisposable
 {
     private static readonly ArchiveColumn[] Columns = [new("Id", "int"), new("Name", "nvarchar")];

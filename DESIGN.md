@@ -261,6 +261,50 @@ resuelven mejor con la cabeza fresca que con prisa.
   transacción y no comparte instante con los datos. Bajo `snapshot` no ocurre, porque la
   base entera está congelada. Es un hueco de API del motor de esquema, no del formato.
 
+### Lo que encontraron 2.3 y 2.4 contra el servidor
+
+Los cinco primeros son defectos de los motores, no del formato, y ninguno está corregido
+en ellos: el import los rodea y las pruebas fijan el comportamiento actual, de modo que el
+día que el motor cambie lo dice una prueba y no un cliente.
+
+- **Un archivo no lleva el historial de una tabla versionada.** El extractor salta la
+  tabla de historia con un aviso —correcto para un diff de esquema, porque la crea la
+  cláusula `SYSTEM_VERSIONING`— y con ella se van sus filas. El `090_finalize.sql`
+  recrea la tabla vacía, y `verify` pasa porque los dos lados la omiten. **El manifiesto
+  no lo declara en ningún sitio legible por máquina**, teniendo `dataSkipped` para
+  justamente eso, y el aviso vive sólo en la consola del export. Para el caso de uso
+  *archivar una base que se retira* esto es un agujero, no un detalle. Decisión abierta:
+  declarar la pérdida, o llevar las filas —SQL Server las acepta con
+  `SYSTEM_VERSIONING = OFF`, que es el estado en el que el import carga de todos modos.
+- **`DBCC CHECKIDENT(t, RESEED, n)` significa dos cosas distintas.** En una tabla que ha
+  recibido un `INSERT`, el siguiente valor es `n+1`; en una que no, es `n`. El destino de
+  un restore es siempre del segundo tipo —lo crea la fase 040 y lo llena un `SWITCH`, que
+  no es un insert— así que el reseed de `SwapPublisher` a `MAX(staged)` deja el contador
+  una unidad corto y **la primera fila que alguien inserte choca con la última
+  restaurada**. Medido en SQL Server 2025. El import ejecuta la forma sin valor, que no
+  tiene esa ambigüedad.
+- **`SwapCapability` no ve una tabla temporal con el versionado apagado**, porque lee
+  `sys.tables.temporal_type`, que vale 0 en ese estado —justo el estado en el que un
+  restore carga filas. La comprobación previa pasa y el `SWITCH` falla con 13577.
+- **En una migración, ninguna tabla tocada por una FK se puede publicar por `SWITCH`.**
+  `SwapAlignment` recrea las claves del destino sobre la staging **habilitadas y `WITH
+  CHECK`**, así que la staging se valida contra un padre que está a mitad de
+  reemplazarse. Ningún orden de carga lo arregla, porque todos los hijos se están
+  recargando a la vez. El import apaga las claves alrededor de la fase de datos y las
+  deja exactamente en el estado en que estaban.
+- **`SwapPublisher.SwapAsync` lee el catálogo de la base entera por cada tabla que
+  publica.** En un restore de cincuenta tablas son cincuenta lecturas completas de
+  metadatos. Es la misma carencia que ya está anotada para SQLDiff 1.8: falta un punto de
+  entrada por tabla en el extractor.
+
+Y uno que no es un defecto sino un hecho del servidor, que costó la prueba decisiva de
+2.4: **`ALTER SEQUENCE … RESTART WITH n` mueve `start_value`, no sólo el valor actual.**
+Como el `090_finalize.sql` emite ese reinicio, todo archivo con una secuencia usada
+verificaba sucio contra la base construida a partir de él. SQL Server no guarda el valor
+declarado en ninguna parte, así que no hay forma de distinguir un reinicio de una
+redeclaración: la propiedad sale de la comparación y el tipo, el incremento, los límites,
+el ciclo y la caché se siguen comparando.
+
 ---
 
 ## Paquetes de trabajo
@@ -271,6 +315,9 @@ resuelven mejor con la cabeza fresca que con prisa.
 | **2.2** | Export: filtros, rangos, reanudación, modos de consistencia, hashes | 2.1 |
 | **2.3** | Import: los tres modos, la migración con diff, la guardia exacta | 2.1, 2.2 |
 | **2.4** | Verify e Inspect | 2.1, 2.2 |
+
+Los cinco están hechos. Los tres últimos se escribieron en paralelo el 9 de septiembre,
+cada uno en su worktree, y mezclaron sin un solo conflicto.
 | **2.5** | CLI, README, guía de bolsillo, CI con contenedor, release con trusted publishing | — |
 
 2.1 va primero y solo: es el contrato del que dependen los otros tres. 2.2 y 2.5 pueden ir

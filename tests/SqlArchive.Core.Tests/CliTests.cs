@@ -15,6 +15,7 @@ namespace SqlArchive.Core.Tests;
 /// xunit runs the tests of one class one at a time.
 /// </para>
 /// </summary>
+[Collection(ConsoleCollection.Name)]
 public sealed class CliTests : IDisposable
 {
     private static readonly ArchiveColumn[] Columns = [new("Id", "int"), new("Name", "nvarchar")];
@@ -77,18 +78,26 @@ public sealed class CliTests : IDisposable
     }
 
     /// <summary>
-    /// The help says which of the four do not work yet, because a list of commands that
-    /// does not say so is a promise the build cannot keep.
+    /// Every verb says what it does, and none of them still claims not to be built.
+    /// <para>
+    /// The second half is the part worth a test. Three verbs carried "Not built yet -
+    /// work package N" in their description for as long as they threw, and a
+    /// description is the one piece of a command nobody re-reads when the body under
+    /// it changes.
+    /// </para>
     /// </summary>
     [Fact]
-    public void TheRootHelpSaysWhichVerbsAreNotBuilt()
+    public void TheRootHelpDescribesEveryVerbAndDisclaimsNone()
     {
         var (_, output) = Run("--help");
         var flattened = Flatten(output);
 
-        Assert.Contains("Not built yet - work package 2.2", flattened, StringComparison.Ordinal);
-        Assert.Contains("Not built yet - work package 2.3", flattened, StringComparison.Ordinal);
-        Assert.Contains("Not built yet - work package 2.4", flattened, StringComparison.Ordinal);
+        Assert.Contains("Read a database into an archive", flattened, StringComparison.Ordinal);
+        Assert.Contains("Restore an archive", flattened, StringComparison.Ordinal);
+        Assert.Contains("Prove an archive is intact", flattened, StringComparison.Ordinal);
+        Assert.Contains("Show what an archive says about itself", flattened, StringComparison.Ordinal);
+
+        Assert.DoesNotContain("Not built yet", flattened, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -106,8 +115,8 @@ public sealed class CliTests : IDisposable
     }
 
     /// <summary>
-    /// "Not built yet" and "you asked for something that cannot be" are different answers,
-    /// and the validation runs first so that the second one is the one you get.
+    /// A combination that cannot mean anything is refused by the settings, before a
+    /// connection is opened or an archive is touched.
     /// </summary>
     [Theory]
     [InlineData("export", "--out", "z.sqlarchive")]
