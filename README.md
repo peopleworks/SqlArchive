@@ -7,7 +7,7 @@
 [![CI](https://github.com/peopleworks/SqlArchive/actions/workflows/ci.yml/badge.svg)](https://github.com/peopleworks/SqlArchive/actions/workflows/ci.yml)
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![SQL Server](https://img.shields.io/badge/SQL%20Server-2016%2B-CC2927?style=flat-square&logo=microsoftsqlserver&logoColor=white)](https://www.microsoft.com/sql-server)
-[![Status](https://img.shields.io/badge/status-half%20built-B45309?style=flat-square)](#what-works-today)
+[![Status](https://img.shields.io/badge/status-four%20verbs%20working-2A7A4B?style=flat-square)](#what-works-today)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![PeopleWorks](https://img.shields.io/badge/by-PeopleWorks-636f61?style=flat-square)](https://mvp.microsoft.com/en-US/mvp/profile/24060a02-dbc6-44ec-bca5-c213ff9835c5)
 
@@ -36,26 +36,36 @@
 
 ## What works today
 
-SqlArchive is **half built**, and this table is the honest state of it. The verbs that
-are not built do not pretend: they are listed in `--help` with the options they will
-take, and running one prints which work package brings it and exits non-zero.
+All four verbs work. The round trip — export a database, restore it into an empty one,
+verify the two match with no differences at all — runs against a real SQL Server in the
+test suite and by hand.
 
 | Verb | Today |
 |---|---|
-| **`inspect`** | **Works.** Reads the manifest and the entry list without unpacking a byte, on our archives and on [dbdumper](https://github.com/JeePeeTee/dbdumper)'s. |
-| `export` | **Not built.** Refuses with exit code 2. Work package 2.2, being written now. |
-| `import` | **Not built.** Refuses with exit code 2. Work package 2.3. |
-| `verify` | **Not built.** Refuses with exit code 2. Work package 2.4. |
+| **`export`** | Reads a database into an archive: table globs, `--where` per table, parallel reads split into ranges, a resumable spool, three consistency modes, and a hash per table. |
+| **`import`** | Restores it. Empty destination: the archive's own phases around the data. Destination that already holds tables: a schema diff first, and each table published through staging and a switch. `--schema-only` and `--data-only` do the halves. |
+| **`verify`** | Answers three questions from one manifest: is the archive intact (no server touched), does a restored database match it, has a live database drifted from it. Says *which* table differs and whether by schema, by count, or by content at the same count. |
+| **`inspect`** | Reads the manifest and the entry list without unpacking a byte, on our archives and on [dbdumper](https://github.com/JeePeeTee/dbdumper)'s. |
 
-What *is* finished is the part everything else hangs off: **the format**, in
+The part everything hangs off is **the format**, in
 [`PeopleWorks.SqlArchive.Core`](src/SqlArchive.Core) — the manifest, the phased schema,
 the JSONL encoding, the value-encoding table that defines equality, the row hash, and
 the reader for dbdumper's manifest. [`FORMAT.md`](FORMAT.md) is its normative
 specification and [`DESIGN.md`](DESIGN.md) says why each decision went the way it did.
 
-> A command that accepts arguments and returns 0 without doing anything is worse than a
-> command that is not there: a script calls it, a scheduled job reports success, and
-> nobody finds out until the day somebody needs the archive.
+### What it does not carry, and says so here rather than letting you find out
+
+- **A system-versioned table restores its current rows and an empty history.** SQL Server
+  builds the history table from the `SYSTEM_VERSIONING` clause, so the schema is right; the
+  history's rows are not in the archive. If the history is the reason you are archiving the
+  database, this is not the tool for it yet.
+- **A memory-optimized table cannot be restored into a fresh database**: its
+  `MEMORY_OPTIMIZED_DATA` filegroup is not in the snapshot, so the table phase fails.
+- **`--table` and `--exclude` on `import` select rows, not schema.** The schema phases are
+  the archive's own files and run whole, so an excluded table is still created and left
+  empty. The summary says so per table.
+- The verdict says *which table* changed, never which row — the trade `DESIGN.md` makes for
+  a manifest that costs bytes per table instead of as much as the data.
 
 ---
 
@@ -198,12 +208,17 @@ SqlArchive does not write that format.
 | Code | Meaning |
 |---|---|
 | `0` | The command did what it says it does. |
-| `1` | It tried and failed: a bad path, a refused value, an unreadable archive. |
-| `2` | The verb exists in the help and is not built yet. |
+| `1` | It tried and failed: a bad path, a refused value, an unreadable archive, an unreachable server. |
+| `3` | `verify` ran to the end, correctly, and the two sides do not match. |
 
-`2` is separate from `1` on purpose: *"this tool cannot do that yet"* and *"this run went
-wrong"* are different answers, and a script should not have to read the message to tell
-them apart.
+`3` is separate from `1` on purpose: *"the archive has drifted from the database"* and
+*"the tool could not make the comparison"* are different answers, and a nightly job that
+treats a corrupt archive and an unreachable server as the same event will eventually act
+on the wrong one. A verify that finds differences did its job.
+
+`2` used to mean *"the verb exists in the help and is not built yet"*. Nothing returns it
+now, and it is deliberately not reused: a script written against the old meaning would
+keep working and mean the wrong thing.
 
 ---
 
@@ -214,9 +229,9 @@ Phase 2 is the four verbs, in work packages numbered as `DESIGN.md` numbers them
 | | | State |
 |---|---|---|
 | **2.1** | The format: manifest, phases, JSONL, value encoding, dbdumper reader | **Done** |
-| **2.2** | Export: filters, ranges, resume, consistency modes, hashes | In progress |
-| **2.3** | Import: the three modes, the migration with a diff, the exact row guard | Waiting on 2.2 |
-| **2.4** | Verify and inspect | `inspect` done; `verify` waiting on 2.2 |
+| **2.2** | Export: filters, ranges, resume, consistency modes, hashes | **Done** |
+| **2.3** | Import: the three modes, the migration with a diff, the exact row guard | **Done** |
+| **2.4** | Verify and inspect | **Done** |
 | **2.5** | CLI, README, pocket guide, CI, release | **Done** |
 
 Consistent subsetting by foreign key, and masking, are **Phase 4**. The manifest already

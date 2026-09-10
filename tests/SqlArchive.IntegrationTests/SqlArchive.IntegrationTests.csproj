@@ -20,6 +20,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SqlArchive.Core\SqlArchive.Core.csproj" />
+    <!-- ExportCliLiveTests drives the export verb itself, not just the engine behind
+         it - see the class doc comment for why. -->
+    <ProjectReference Include="..\..\src\SqlArchive.Cli\SqlArchive.Cli.csproj" />
   </ItemGroup>
 
   <ItemGroup>
