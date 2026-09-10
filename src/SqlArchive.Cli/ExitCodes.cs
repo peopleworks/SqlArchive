@@ -19,4 +19,16 @@ internal static class ExitCodes
     /// have to read the message to do it.
     /// </summary>
     public const int NotBuiltYet = 2;
+
+    /// <summary>
+    /// The comparison ran, correctly and to the end, and the two sides do not match.
+    /// <para>
+    /// Distinct from <see cref="Failed"/> for the same reason <see cref="NotBuiltYet"/>
+    /// is: "the archive has drifted from the database" and "the tool could not make the
+    /// comparison" are different answers, and a nightly job that treats a corrupt archive
+    /// and an unreachable server as the same event will eventually act on the wrong one.
+    /// A verify that finds differences did its job.
+    /// </para>
+    /// </summary>
+    public const int Differences = 3;
 }
