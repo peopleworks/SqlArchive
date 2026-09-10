@@ -621,6 +621,68 @@ public sealed class VerifyLiveTests
         }
     }
 
+    /// <summary>
+    /// A table the manifest names with no row hash beside it - which is every table of a
+    /// dbdumper archive. The count is compared and the content is not, and the verdict
+    /// says so rather than showing green over a question nobody asked.
+    /// </summary>
+    [LiveFact]
+    public async Task AtableWithNoRowHashIsCheckedByCountAndSaysSo()
+    {
+        var source = await SeedAsync();
+        var path = TempPath();
+
+        try
+        {
+            await ExportAsync(source, path);
+            await ForgetTheRowHashAsync(path, "Order");
+
+            // The rows moved under it. Only the count can see that, and only because the
+            // row went away rather than changing.
+            await SqlServerFixture.ExecuteAsync(source, "UPDATE sales.[Order] SET Total = Total + 1;");
+
+            var report = await VerifyAsync(path, source);
+
+            var order = report.Tables.Single(t => t.Name == "Order");
+
+            Assert.Equal(TableOutcome.NotVerifiable, order.Outcome);
+            Assert.False(order.ContentCompared);
+            Assert.Equal(150, order.DatabaseRows);
+            Assert.Contains("no row hash", order.Limitation, StringComparison.Ordinal);
+
+            // Not a difference, and not a match: the manifest cannot answer.
+            Assert.False(report.HasDifferences, Explain(report));
+            Assert.Equal(1, report.Unverifiable);
+        }
+        finally
+        {
+            Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// Rewrites the manifest inside the archive with one table's row hash taken out, so
+    /// that the shape of a dbdumper archive can be exercised without one to hand.
+    /// </summary>
+    private static async Task ForgetTheRowHashAsync(string archivePath, string table)
+    {
+        ArchiveManifest manifest;
+
+        using(var archive = await ArchiveReader.OpenAsync(archivePath))
+            manifest = archive.Manifest;
+
+        manifest.Tables.Single(t => t.Name == table).RowHash = null;
+
+        using var zip = System.IO.Compression.ZipFile.Open(archivePath, System.IO.Compression.ZipArchiveMode.Update);
+        var entry = zip.GetEntry(ArchiveFormat.ManifestEntry)!;
+
+        using var stream = entry.Open();
+        stream.SetLength(0);
+
+        var bytes = ArchiveFormat.Utf8.GetBytes(ManifestSerializer.Serialize(manifest));
+        await stream.WriteAsync(bytes);
+    }
+
     // ------------------------------------------------------------ the flags
 
     /// <summary>

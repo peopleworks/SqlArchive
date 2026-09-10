@@ -350,6 +350,21 @@ public sealed class VerifyTests : IDisposable
     }
 
     /// <summary>
+    /// A typo in <c>--against</c> is the tool being asked wrongly, not the tool breaking,
+    /// and it says so in a sentence rather than in a stack trace.
+    /// </summary>
+    [Fact]
+    public async Task AConnectionStringThatIsNotOneIsRefusedInWords()
+    {
+        var path = await ArchiveAsync();
+        var (code, output) = Run("verify", path, "--against", "this is not a connection string");
+
+        Assert.Equal(ExitCodes.Failed, code);
+        Assert.Contains("--against is not a connection string", Flatten(output), StringComparison.Ordinal);
+        Assert.DoesNotContain("at Microsoft.Data.SqlClient", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// <c>--json</c> writes the verdict where a build can read it, and the file says the
     /// same thing the exit code did.
     /// </summary>

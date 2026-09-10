@@ -116,23 +116,11 @@ public sealed class VerifyCommand : AsyncCommand<VerifyCommand.Settings>
     {
         ArgumentNullException.ThrowIfNull(settings);
 
-        var options = new VerifyOptions
-        {
-            ConnectionString = settings.Against,
-            IncludeTables = settings.Tables,
-            ExcludeTables = settings.Exclude,
-            SchemaOnly = settings.SchemaOnly,
-            Parallelism = settings.MaxDop ?? Environment.ProcessorCount,
-            CommandTimeoutSeconds = settings.Timeout ?? 0
-        };
-
         VerifyReport report;
 
         try
         {
-            report = await new ArchiveVerifier(options)
-                .VerifyAsync(settings.Archive, CancellationToken.None)
-                .ConfigureAwait(false);
+            report = await RunAsync(settings).ConfigureAwait(false);
         }
         catch(SqlException failed)
         {
@@ -140,6 +128,20 @@ public sealed class VerifyCommand : AsyncCommand<VerifyCommand.Settings>
             // that did not happen, not a comparison that found something, so it does not
             // get the exit code that means drift.
             _console.MarkupLine($"[red]{failed.Message.EscapeMarkup()}[/]");
+            return ExitCodes.Failed;
+        }
+        catch(ArgumentException malformed)
+        {
+            // A typo in --against. The driver's own message names the position it gave up
+            // at, which is more use than the stack trace under it, and a stack trace here
+            // would say the tool broke when what happened is that it was asked wrongly.
+            _console.MarkupLine(
+                $"[red]--against is not a connection string:[/] {malformed.Message.EscapeMarkup()}");
+
+            _console.MarkupLine(
+                "[dim]One looks like this:  " +
+                "Server=SQL2022;Database=Ventas;Integrated Security=true;TrustServerCertificate=true[/]");
+
             return ExitCodes.Failed;
         }
 
@@ -150,6 +152,58 @@ public sealed class VerifyCommand : AsyncCommand<VerifyCommand.Settings>
 
         return report.HasDifferences ? ExitCodes.Differences : ExitCodes.Ok;
     }
+
+    /// <summary>
+    /// The work, with a spinner over it where there is somebody watching.
+    /// </summary>
+    /// <remarks>
+    /// Only where the console is interactive. A status line redirected into a log file
+    /// is one line per entry, and on a large archive that is thousands of lines of
+    /// progress wrapped around the report somebody actually wanted.
+    /// </remarks>
+    private Task<VerifyReport> RunAsync(Settings settings)
+    {
+        if(!_console.Profile.Capabilities.Interactive)
+            return new ArchiveVerifier(Options(settings, null)).VerifyAsync(settings.Archive, CancellationToken.None);
+
+        return _console.Status()
+            .Spinner(Spinner.Known.Dots)
+            .StartAsync(
+                "Reading the archive",
+                context =>
+                {
+                    var progress = new Progress<VerifyProgress>(p => context.Status(Escape(Describe(p))));
+                    return new ArchiveVerifier(Options(settings, progress)).VerifyAsync(settings.Archive, CancellationToken.None);
+                });
+    }
+
+    private static VerifyOptions Options(Settings settings, IProgress<VerifyProgress>? progress) => new()
+    {
+        ConnectionString = settings.Against,
+        IncludeTables = settings.Tables,
+        ExcludeTables = settings.Exclude,
+        SchemaOnly = settings.SchemaOnly,
+        Parallelism = settings.MaxDop ?? Environment.ProcessorCount,
+        CommandTimeoutSeconds = settings.Timeout ?? 0,
+        Progress = progress
+    };
+
+    private static string Describe(VerifyProgress progress) => progress.Phase switch
+    {
+        "integrity" => progress.Total == 0
+            ? "Checking the archive"
+            : $"Checking the archive - {Fraction(progress)}",
+
+        "schema" => "Reading the database's schema",
+
+        _ => progress.Table is { Length: > 0 } table
+            ? $"{table} - {Fraction(progress)}"
+            : "Reading the tables"
+    };
+
+    private static string Fraction(VerifyProgress progress) =>
+        $"{progress.Done.ToString("N0", CultureInfo.InvariantCulture)} of " +
+        $"{progress.Total.ToString("N0", CultureInfo.InvariantCulture)}";
 
     private void Render(VerifyReport report, string? jsonPath)
     {

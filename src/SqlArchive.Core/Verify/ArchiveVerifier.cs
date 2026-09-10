@@ -414,7 +414,9 @@ public sealed class ArchiveVerifier
             {
                 rows = await CountAsync(connectionString, entry, cancellationToken).ConfigureAwait(false);
 
-                limitation = columns.Count == 0
+                // ??= rather than =: a column of a type this build cannot encode has
+                // already said something more specific than "no columns".
+                limitation ??= columns.Count == 0
                     ? "the manifest carries no columns for this table, so only the row count could be compared."
                     : "the manifest carries no row hash for this table, so only the row count could be compared - " +
                       "a count cannot see an UPDATE.";
@@ -472,6 +474,12 @@ public sealed class ArchiveVerifier
                 $"the archive holds only the rows matching '{entry.RowFilter}', and both sides were read through " +
                 "that filter. Rows outside it were not compared and are not reported as differences.";
         }
+
+        // Counts agreeing where the content was never compared is not a match. It is the
+        // manifest failing to answer, and reporting it green would be the one lie this
+        // tool exists to stop telling: a thousand modified rows are still a thousand rows.
+        if(outcome == TableOutcome.Matches && !contentCompared)
+            outcome = TableOutcome.NotVerifiable;
 
         return Build(entry, outcome, differences, limitation, rows, hash, contentCompared);
     }
