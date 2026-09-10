@@ -355,6 +355,17 @@ public sealed class ImportLiveTests
             Assert.Equal(
                 "North",
                 await ScalarStringAsync(destination, "SELECT Name FROM dbo.Region WHERE Id = 1;"));
+
+            // The foreign keys of the tables the diff created are there, enabled and
+            // trusted. Trusted is the part that matters: the fence took them off to
+            // publish, and one that came back untrusted would be a key nothing had
+            // checked against the rows that are now in the destination.
+            Assert.Equal(2, Convert.ToInt32(await SqlServerFixture.ScalarAsync(destination, "SELECT COUNT(*) FROM sys.foreign_keys;")));
+            Assert.Equal(
+                0,
+                Convert.ToInt32(await SqlServerFixture.ScalarAsync(
+                    destination,
+                    "SELECT COUNT(*) FROM sys.foreign_keys WHERE is_disabled = 1 OR is_not_trusted = 1;")));
         }
         finally
         {
@@ -465,7 +476,10 @@ public sealed class ImportLiveTests
         try
         {
             await ExportAsync(source, path);
-            await ImportAsync(path, destination);
+
+            var seeded = await ImportAsync(path, destination);
+
+            Assert.True(seeded.Complete, Explain(seeded));
 
             var before = await DigestAsync(path, destination, "dbo", "Customer");
 
@@ -477,7 +491,10 @@ public sealed class ImportLiveTests
 
             var customer = result.Tables.Single(t => t.Name == "Customer");
 
-            Assert.Equal(ImportTableOutcome.Refused, customer.Outcome);
+            Assert.True(
+                customer.Outcome == ImportTableOutcome.Refused,
+                $"expected a refusal and got {customer.Outcome}: {customer.Reason}");
+
             Assert.Contains("49", customer.Reason!, StringComparison.Ordinal);
 
             // Not "the same number of rows" - the same rows.
@@ -508,7 +525,10 @@ public sealed class ImportLiveTests
         try
         {
             await ExportAsync(source, path);
-            await ImportAsync(path, destination);
+
+            var seeded = await ImportAsync(path, destination);
+
+            Assert.True(seeded.Complete, Explain(seeded));
 
             var before = await DigestAsync(path, destination, "dbo", "Region");
 
@@ -522,7 +542,10 @@ public sealed class ImportLiveTests
 
             var region = result.Tables.Single(t => t.Name == "Region");
 
-            Assert.Equal(ImportTableOutcome.Refused, region.Outcome);
+            Assert.True(
+                region.Outcome == ImportTableOutcome.Refused,
+                $"expected a refusal and got {region.Outcome}: {region.Reason}");
+
             Assert.Contains("3 rows on both sides", region.Reason!, StringComparison.Ordinal);
 
             var after = await DigestAsync(path, destination, "dbo", "Region");

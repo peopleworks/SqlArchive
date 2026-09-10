@@ -447,7 +447,7 @@ public sealed class DatabaseImporter
         {
             notices.Add(
                 $"{Plural(fence.Lowered.Count, "foreign key")} of the destination " +
-                (_options.DryRun ? "would be" : "were") +
+                (_options.DryRun ? "would be" : fence.Lowered.Count == 1 ? "was" : "were") +
                 " switched off for the data phase and put back afterwards: every table here is replaced whole, " +
                 "and SQL Server refuses to empty a table another key points at whichever way you empty it. They " +
                 "are re-validated on the way back, which is the first moment at which validating them means " +

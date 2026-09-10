@@ -37,11 +37,14 @@ public sealed class ImportCommand : AsyncCommand<ImportCommand.Settings>
         public bool DataOnly { get; init; }
 
         [CommandOption("--table <GLOB>")]
-        [Description("Restore only tables matching this glob, as schema.table. Repeatable.")]
+        [Description(
+            "Publish the rows of only the tables matching this glob, as schema.table. Repeatable. It selects " +
+            "ROWS and not schema: the archive's schema phases are its own files, run whole, so a table left out " +
+            "here is still created - and left empty. The summary says which and why.")]
         public string[] Tables { get; init; } = [];
 
         [CommandOption("--exclude <GLOB>")]
-        [Description("Leave out tables matching this glob, as schema.table. Repeatable. Applied after --table.")]
+        [Description("Leave the rows of tables matching this glob unpublished, as schema.table. Repeatable. Applied after --table.")]
         public string[] Exclude { get; init; } = [];
 
         [CommandOption("--dry-run")]
