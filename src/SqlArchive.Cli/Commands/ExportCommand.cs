@@ -273,7 +273,10 @@ public sealed class ExportCommand : AsyncCommand<ExportCommand.Settings>
         grid.AddRow("[dim]Rows[/]", result.Rows.ToString("N0", CultureInfo.InvariantCulture));
         grid.AddRow("[dim]Consistency[/]", Escape(ConsistencyName(result.Consistency)));
         grid.AddRow("[dim]File[/]", $"{Escape(Size(result.Bytes))} at {Escape(result.Path)}");
-        grid.AddRow("[dim]Elapsed[/]", Escape(result.Elapsed.ToString("g", CultureInfo.InvariantCulture)));
+        // "g" prints every tick it has - 0:00:02.0647426 - and nobody reading a
+        // summary wants seven decimals of a second. Whole seconds under a minute,
+        // and h:mm:ss once there is an hour to show.
+        grid.AddRow("[dim]Elapsed[/]", Escape(Duration(result.Elapsed)));
 
         AnsiConsole.Write(grid);
         AnsiConsole.WriteLine();
@@ -329,4 +332,10 @@ public sealed class ExportCommand : AsyncCommand<ExportCommand.Settings>
     /// [PROD] is markup to Spectre and a name to everyone else.
     /// </summary>
     private static string Escape(string? value) => (value ?? string.Empty).EscapeMarkup();
+    /// <summary>How long it took, at the precision a person reading a summary wants.</summary>
+    private static string Duration(TimeSpan elapsed) =>
+        elapsed.TotalHours >= 1
+            ? elapsed.ToString(@"h\:mm\:ss", CultureInfo.InvariantCulture)
+            : elapsed.ToString(@"m\:ss", CultureInfo.InvariantCulture);
+
 }
