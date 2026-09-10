@@ -525,6 +525,106 @@ public sealed class ImportLiveTests
         }
     }
 
+    // ------------------------------------------------------------------ temporal
+
+    /// <summary>
+    /// A system-versioned table end to end: rows can only be loaded with versioning off,
+    /// the archive leaves out the period columns for exactly that reason, and the ordering
+    /// the phases impose is what makes the two fit together - <c>040</c> creates the table
+    /// with its period and no versioning, the rows go in, and <c>090</c> turns versioning
+    /// back on.
+    /// </summary>
+    /// <remarks>
+    /// <b>And it records what is lost.</b> The history table is not in the archive at all:
+    /// <c>SqlServerSchemaExtractor</c> skips it, with a notice, because SQL Server creates
+    /// it from the <c>SYSTEM_VERSIONING</c> clause and a schema diff has no business
+    /// scripting it. That is right for a diff and it costs an archive the whole history -
+    /// the restored table comes back with its current rows and an empty history. The
+    /// assertions below say so out loud rather than leaving it to be discovered, so that
+    /// the day the extractor changes its mind this test is what tells us.
+    /// </remarks>
+    [LiveFact]
+    public async Task ASystemVersionedTableIsRestoredWithItsCurrentRowsAndWithoutItsHistory()
+    {
+        var (source, destination) = await _server.CreatePairAsync();
+
+        await SqlServerFixture.ExecuteAsync(
+            source,
+            """
+            CREATE TABLE dbo.Precio (
+                Id        int           NOT NULL CONSTRAINT PK_Precio PRIMARY KEY,
+                Valor     decimal(19,4) NOT NULL,
+                ValidFrom datetime2 GENERATED ALWAYS AS ROW START NOT NULL,
+                ValidTo   datetime2 GENERATED ALWAYS AS ROW END   NOT NULL,
+                PERIOD FOR SYSTEM_TIME (ValidFrom, ValidTo)
+            ) WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = dbo.PrecioHistory));
+            """);
+
+        await SqlServerFixture.ExecuteAsync(source, "INSERT INTO dbo.Precio (Id, Valor) VALUES (1, 10.0), (2, 20.0), (3, 30.0);");
+        await SqlServerFixture.ExecuteAsync(source, "UPDATE dbo.Precio SET Valor = Valor + 1 WHERE Id <= 2;");
+
+        var path = TempPath();
+
+        try
+        {
+            var exported = await new DatabaseExporter(new ExportOptions { ConnectionString = source }).ExportAsync(path);
+
+            // The export says the history table is not coming, which is the only reason
+            // its absence is a limitation rather than a silent loss.
+            Assert.Contains(exported.Notices, n => n.Contains("PrecioHistory", StringComparison.Ordinal));
+
+            using(var archive = await ArchiveReader.OpenAsync(path))
+            {
+                Assert.Equal(["[dbo].[Precio]"], archive.Manifest.Tables.Select(t => t.Identifier).ToArray());
+
+                // The period columns are not carried, and the manifest says which and why
+                // rather than leaving a reader to count columns and wonder.
+                Assert.Equal(
+                    new Dictionary<string, string> { ["ValidFrom"] = "GENERATED ALWAYS", ["ValidTo"] = "GENERATED ALWAYS" },
+                    archive.Manifest.Table("dbo", "Precio")!.OmittedColumns);
+            }
+
+            var result = await ImportAsync(path, destination);
+
+            Assert.True(result.Complete, Explain(result));
+
+            // No switch can reach a table with a period - checked against SQL Server 2025,
+            // error 13577 - so this one is published by an insert, and the summary says so.
+            Assert.Contains(
+                "SYSTEM_TIME period",
+                result.Tables.Single(t => t.Name == "Precio").Publication!,
+                StringComparison.Ordinal);
+
+            await AssertRestoredAsync(path, destination);
+
+            Assert.Equal(3, await SqlServerFixture.CountAsync(destination, "dbo.Precio"));
+            Assert.Equal(
+                11.0m,
+                Convert.ToDecimal(await SqlServerFixture.ScalarAsync(destination, "SELECT Valor FROM dbo.Precio WHERE Id = 1;")));
+
+            // Versioning is back on, pointed at a history table SQL Server created from
+            // the finalize phase's clause.
+            Assert.Equal(
+                2,
+                Convert.ToInt32(await SqlServerFixture.ScalarAsync(
+                    destination, "SELECT temporal_type FROM sys.tables WHERE name = N'Precio';")));
+
+            Assert.Equal(
+                "PrecioHistory",
+                await ScalarStringAsync(
+                    destination, "SELECT OBJECT_NAME(history_table_id) FROM sys.tables WHERE name = N'Precio';"));
+
+            // The known limitation, stated as an assertion: two history rows on the
+            // source, none on the restored copy.
+            Assert.Equal(2, await SqlServerFixture.CountAsync(source, "dbo.PrecioHistory"));
+            Assert.Equal(0, await SqlServerFixture.CountAsync(destination, "dbo.PrecioHistory"));
+        }
+        finally
+        {
+            Clean(path);
+        }
+    }
+
     // ------------------------------------------------------------------ dry run
 
     /// <summary>A dry run says what it would do and leaves the destination as empty as it found it.</summary>

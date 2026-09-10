@@ -144,7 +144,14 @@ public sealed class ImportJournal
     }
 
     /// <summary>The unit name for one table.</summary>
-    public static string TableUnit(string schema, string name) => $"table:{schema}.{name}";
+    /// <remarks>
+    /// The two parts are escaped separately, and only then joined by a dot. Joining them
+    /// first would make <c>[dbo].[a.b]</c> and <c>[dbo.a].[b]</c> the same unit, so
+    /// finishing one would mark the other done - which is the same reason the archive's
+    /// entry names escape the dot, and it is why the escape used here is that one.
+    /// </remarks>
+    public static string TableUnit(string schema, string name) =>
+        $"table:{ArchiveFormat.EscapeIdentifier(schema)}.{ArchiveFormat.EscapeIdentifier(name)}";
 
     /// <summary>The unit name for one half of the schema.</summary>
     public static string SchemaUnit(string half) => $"schema:{half}";
