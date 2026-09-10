@@ -57,11 +57,11 @@ internal sealed class TablePublisher
     /// </param>
     /// <param name="entry">The manifest's entry for the table - what the guard compares against.</param>
     /// <param name="columns">The archived columns, in the archive's order.</param>
-    /// <param name="cancellationToken">Cancellation.</param>
     /// <param name="fenced">
     /// True when a foreign key of this table is switched off for the length of the data
     /// phase, which is what rules the swap out. See <see cref="PublishStagedAsync"/>.
     /// </param>
+    /// <param name="cancellationToken">Cancellation.</param>
     public async Task<ImportTableResult> PublishAsync(
         string archivePath,
         ArchiveTableEntry entry,
