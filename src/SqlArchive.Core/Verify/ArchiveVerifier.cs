@@ -456,9 +456,11 @@ public sealed class ArchiveVerifier
         {
             // The case a row count cannot see, and the reason the hash is in the manifest
             // at all: a thousand modified rows are still a thousand rows.
+            // The two hashes are fields of the verdict rather than words in the sentence:
+            // sixty-four characters twice would push everything worth reading off the
+            // side of a terminal, and a build that wants them reads them from the JSON.
             differences.Add(
-                $"{rows.ToString("N0", CultureInfo.InvariantCulture)} rows on both sides, and the content differs " +
-                $"(the archive says {entry.RowHash}, the database says {hash}).");
+                $"{rows.ToString("N0", CultureInfo.InvariantCulture)} rows on both sides, and the content differs.");
 
             if(outcome == TableOutcome.Matches)
                 outcome = TableOutcome.ContentDiffers;

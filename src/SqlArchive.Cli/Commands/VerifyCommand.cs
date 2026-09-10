@@ -25,7 +25,27 @@ namespace SqlArchive.Cli.Commands;
 public sealed class VerifyCommand : AsyncCommand<VerifyCommand.Settings>
 {
     /// <summary>How much of a 64-character hash the table shows. --json writes them whole.</summary>
-    private const int HashPreview = 12;
+    private const int HashPreview = 8;
+
+    private readonly IAnsiConsole _console;
+
+    /// <summary>
+    /// The console this renders through, handed over by Spectre rather than reached for
+    /// statically.
+    /// </summary>
+    /// <remarks>
+    /// <c>inspect</c> writes to the static <see cref="AnsiConsole"/> and its tests swap
+    /// that static out while they run. A second command doing the same would race the
+    /// first: xunit runs different test classes at the same time, and one of those tests
+    /// asserts on the <i>whole</i> of what was captured. Taking the console as a
+    /// dependency is what lets this one be driven through the real entry point without
+    /// two suites writing into each other.
+    /// </remarks>
+    public VerifyCommand(IAnsiConsole console)
+    {
+        ArgumentNullException.ThrowIfNull(console);
+        _console = console;
+    }
 
     public sealed class Settings : CommandSettings
     {
@@ -119,7 +139,7 @@ public sealed class VerifyCommand : AsyncCommand<VerifyCommand.Settings>
             // The database side could not be reached or could not be read. That is a run
             // that did not happen, not a comparison that found something, so it does not
             // get the exit code that means drift.
-            AnsiConsole.MarkupLine($"[red]{failed.Message.EscapeMarkup()}[/]");
+            _console.MarkupLine($"[red]{failed.Message.EscapeMarkup()}[/]");
             return ExitCodes.Failed;
         }
 
@@ -131,11 +151,11 @@ public sealed class VerifyCommand : AsyncCommand<VerifyCommand.Settings>
         return report.HasDifferences ? ExitCodes.Differences : ExitCodes.Ok;
     }
 
-    private static void Render(VerifyReport report, string? jsonPath)
+    private void Render(VerifyReport report, string? jsonPath)
     {
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Rule($"[bold]{Escape(Path.GetFileName(report.Archive))}[/]").LeftJustified());
-        AnsiConsole.WriteLine();
+        _console.WriteLine();
+        _console.Write(new Rule($"[bold]{Escape(Path.GetFileName(report.Archive))}[/]").LeftJustified());
+        _console.WriteLine();
 
         RenderHeader(report);
         RenderIntegrity(report.Integrity);
@@ -145,10 +165,10 @@ public sealed class VerifyCommand : AsyncCommand<VerifyCommand.Settings>
         RenderVerdict(report);
 
         if(jsonPath is { Length: > 0 })
-            AnsiConsole.MarkupLine($"[dim]The same verdict, as JSON, is in {Escape(jsonPath)}.[/]");
+            _console.MarkupLine($"[dim]The same verdict, as JSON, is in {Escape(jsonPath)}.[/]");
     }
 
-    private static void RenderHeader(VerifyReport report)
+    private void RenderHeader(VerifyReport report)
     {
         var grid = new Grid()
             .AddColumn(new GridColumn().PadRight(3).NoWrap())
@@ -162,11 +182,11 @@ public sealed class VerifyCommand : AsyncCommand<VerifyCommand.Settings>
 
         Row(grid, "Took", Escape(report.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)) + " s");
 
-        AnsiConsole.Write(grid);
-        AnsiConsole.WriteLine();
+        _console.Write(grid);
+        _console.WriteLine();
     }
 
-    private static void RenderIntegrity(IntegrityVerdict integrity)
+    private void RenderIntegrity(IntegrityVerdict integrity)
     {
         var parts = new List<string>
         {
@@ -192,16 +212,16 @@ public sealed class VerifyCommand : AsyncCommand<VerifyCommand.Settings>
         if(integrity.NotChecked > 0)
             parts.Add($"[dim]{Plural(integrity.NotChecked, "entry", "entries")} not read[/]");
 
-        AnsiConsole.MarkupLine($"[bold]Integrity[/]  {string.Join(", ", parts)}");
+        _console.MarkupLine($"[bold]Integrity[/]  {string.Join(", ", parts)}");
 
         var wrong = integrity.Entries
             .Where(e => e.State is EntryState.Corrupt or EntryState.Missing or EntryState.Undeclared)
             .ToArray();
 
         foreach(var entry in wrong)
-            AnsiConsole.MarkupLine($"           {EntryLine(entry)}");
+            _console.Write(new Padder(new Markup(EntryLine(entry)), new Padding(11, 0, 0, 0)));
 
-        AnsiConsole.WriteLine();
+        _console.WriteLine();
     }
 
     private static string EntryLine(EntryVerdict entry) => entry.State switch
@@ -217,40 +237,44 @@ public sealed class VerifyCommand : AsyncCommand<VerifyCommand.Settings>
             $"[yellow]{Escape(entry.Entry)}[/] is in the archive and the manifest does not account for it"
     };
 
-    private static void RenderSchema(SchemaVerdict? schema)
+    private void RenderSchema(SchemaVerdict? schema)
     {
         if(schema is null)
             return;
 
         if(schema.Matches)
         {
-            AnsiConsole.MarkupLine("[bold]Schema[/]  [green]the two describe the same objects[/]");
+            _console.MarkupLine("[bold]Schema[/]  [green]the two describe the same objects[/]");
         }
         else
         {
-            AnsiConsole.MarkupLine("[bold]Schema[/]");
+            _console.MarkupLine("[bold]Schema[/]");
 
             List(schema.OnlyInArchive, "only in the archive");
             List(schema.OnlyInDatabase, "only in the database");
             List(schema.Differing, "different on the two sides");
+
         }
 
+        // Through a Padder rather than eight spaces in the string: a sentence this long
+        // wraps, and a wrapped continuation that starts back at column zero reads as a
+        // different line rather than as the rest of this one.
         foreach(var ignored in schema.Ignored)
-            AnsiConsole.MarkupLine($"        [dim]not compared: {Escape(ignored)}[/]");
+            _console.Write(new Padder(new Markup($"[dim]not compared: {Escape(ignored)}[/]"), new Padding(8, 0, 0, 0)));
 
-        AnsiConsole.WriteLine();
+        _console.WriteLine();
 
-        static void List(IReadOnlyList<string> objects, string what)
+        void List(IReadOnlyList<string> objects, string what)
         {
             if(objects.Count == 0)
                 return;
 
-            AnsiConsole.MarkupLine($"        [yellow]{Plural(objects.Count, "object")} {Escape(what)}:[/] " +
-                                   Escape(string.Join(", ", objects.Order(StringComparer.OrdinalIgnoreCase))));
+            _console.MarkupLine($"        [yellow]{Plural(objects.Count, "object")} {Escape(what)}:[/] " +
+                                Escape(string.Join(", ", objects.Order(StringComparer.OrdinalIgnoreCase))));
         }
     }
 
-    private static void RenderTables(VerifyReport report)
+    private void RenderTables(VerifyReport report)
     {
         if(report.Tables.Count == 0)
             return;
@@ -259,11 +283,10 @@ public sealed class VerifyCommand : AsyncCommand<VerifyCommand.Settings>
             .Border(TableBorder.Rounded)
             .BorderColor(Color.Grey35);
 
-        table.AddColumn("Table");
-        table.AddColumn("Verdict");
-        table.AddColumn(new TableColumn("Archive").RightAligned());
-        table.AddColumn(new TableColumn("Database").RightAligned());
-        table.AddColumn("What differs");
+        table.AddColumn(new TableColumn("Table").NoWrap());
+        table.AddColumn(new TableColumn("Verdict").NoWrap());
+        table.AddColumn(new TableColumn("Rows").RightAligned().NoWrap());
+        table.AddColumn(new TableColumn("Content").NoWrap());
 
         foreach(var verdict in report.Tables)
         {
@@ -272,12 +295,11 @@ public sealed class VerifyCommand : AsyncCommand<VerifyCommand.Settings>
                 // else. Escaping is not optional anywhere in this file.
                 Escape(verdict.Identifier),
                 Verdict(verdict.Outcome),
-                Side(verdict.ArchiveRows, verdict.ArchiveHash),
-                Side(verdict.DatabaseRows, verdict.DatabaseHash),
-                Detail(verdict));
+                Rows(verdict),
+                Content(verdict));
         }
 
-        AnsiConsole.Write(table);
+        _console.Write(table);
 
         var summary = new List<string> { $"[green]{Plural(report.Matching, "table")} match[/]" };
 
@@ -287,32 +309,93 @@ public sealed class VerifyCommand : AsyncCommand<VerifyCommand.Settings>
         if(report.Unverifiable > 0)
             summary.Add($"[yellow]{Plural(report.Unverifiable, "table")} the manifest cannot answer for[/]");
 
-        AnsiConsole.MarkupLine(string.Join(", ", summary));
-        AnsiConsole.WriteLine();
+        _console.MarkupLine(string.Join(", ", summary));
+
+        RenderDetail(report);
+
+        _console.WriteLine();
     }
 
-    /// <summary>One side of a table's comparison: how many rows, and what they hash to.</summary>
-    private static string Side(long? rows, string? hash)
+    /// <summary>
+    /// What differs, in sentences, under the table rather than inside it.
+    /// <para>
+    /// A column narrow enough to fit beside four others is too narrow to hold a
+    /// sentence: at eighty columns it wraps every third word and the reader is left
+    /// reassembling it. The table says which tables and how much; this says what.
+    /// </para>
+    /// </summary>
+    private void RenderDetail(VerifyReport report)
     {
-        if(rows is null)
+        var interesting = report.Tables
+            .Where(t => t.Differences.Count > 0 || t.Limitation is { Length: > 0 })
+            .ToArray();
+
+        if(interesting.Length == 0)
+            return;
+
+        _console.WriteLine();
+
+        var grid = new Grid()
+            .AddColumn(new GridColumn().PadRight(2).NoWrap())
+            .AddColumn();
+
+        foreach(var verdict in interesting)
+        {
+            var first = true;
+
+            foreach(var line in verdict.Differences)
+            {
+                grid.AddRow(first ? Escape(verdict.Identifier) : string.Empty, Escape(line));
+                first = false;
+            }
+
+            if(verdict.Limitation is { Length: > 0 } limitation)
+            {
+                grid.AddRow(first ? Escape(verdict.Identifier) : string.Empty, $"[dim]{Escape(limitation)}[/]");
+                first = false;
+            }
+        }
+
+        _console.Write(grid);
+    }
+
+    /// <summary>
+    /// The row counts. One number when the two sides agree, and an arrow between them
+    /// when they do not - which is the thing being looked for, so it is what the column
+    /// is shaped around.
+    /// </summary>
+    private static string Rows(TableVerdict verdict)
+    {
+        var archive = Count(verdict.ArchiveRows);
+        var database = Count(verdict.DatabaseRows);
+
+        if(verdict.ArchiveRows is null && verdict.DatabaseRows is null)
             return "[dim]-[/]";
 
-        var count = rows.Value.ToString("N0", CultureInfo.InvariantCulture);
-
-        return hash is { Length: > 0 }
-            ? $"{count} [dim]{Escape(Short(hash))}[/]"
-            : count;
+        return verdict.ArchiveRows == verdict.DatabaseRows
+            ? archive
+            : $"{archive} [red]->[/] {database}";
     }
 
-    private static string Detail(TableVerdict verdict)
+    /// <summary>
+    /// The content hashes, the same way: one when they agree, both when they do not. A
+    /// row count cannot see an UPDATE and this column is where one shows up.
+    /// </summary>
+    private static string Content(TableVerdict verdict)
     {
-        var lines = verdict.Differences.Select(Escape).ToList();
+        if(!verdict.ContentCompared)
+            return "[dim]-[/]";
 
-        if(verdict.Limitation is { Length: > 0 } limitation)
-            lines.Add($"[dim]{Escape(limitation)}[/]");
+        var archive = Escape(Short(verdict.ArchiveHash));
+        var database = Escape(Short(verdict.DatabaseHash));
 
-        return string.Join(Environment.NewLine, lines);
+        return string.Equals(verdict.ArchiveHash, verdict.DatabaseHash, StringComparison.OrdinalIgnoreCase)
+            ? $"[dim]{archive}[/]"
+            : $"[dim]{archive}[/] [red]->[/] [dim]{database}[/]";
     }
+
+    private static string Count(long? rows) =>
+        rows is null ? "[dim]-[/]" : rows.Value.ToString("N0", CultureInfo.InvariantCulture);
 
     private static string Verdict(TableOutcome outcome) => outcome switch
     {
@@ -327,13 +410,13 @@ public sealed class VerifyCommand : AsyncCommand<VerifyCommand.Settings>
         _ => "[red]unreadable[/]"
     };
 
-    private static void RenderNotices(IReadOnlyList<string> notices)
+    private void RenderNotices(IReadOnlyList<string> notices)
     {
         foreach(var notice in notices)
-            AnsiConsole.MarkupLine($"[dim]{Escape(notice)}[/]");
+            _console.MarkupLine($"[dim]{Escape(notice)}[/]");
 
         if(notices.Count > 0)
-            AnsiConsole.WriteLine();
+            _console.WriteLine();
     }
 
     /// <summary>
@@ -341,18 +424,18 @@ public sealed class VerifyCommand : AsyncCommand<VerifyCommand.Settings>
     /// "found differences" and "could not compare" leave by different doors and the exit
     /// code is what a script branches on.
     /// </summary>
-    private static void RenderVerdict(VerifyReport report)
+    private void RenderVerdict(VerifyReport report)
     {
         if(!report.HasDifferences)
         {
-            AnsiConsole.MarkupLine(report.Database is { Length: > 0 } matched
+            _console.MarkupLine(report.Database is { Length: > 0 } matched
                 ? $"[green]No differences. {Escape(matched)} is what this archive says it is.[/]"
                 : "[green]No differences. Every entry hashes to what the manifest declares.[/]");
 
             return;
         }
 
-        AnsiConsole.MarkupLine(
+        _console.MarkupLine(
             $"[red]Differences found.[/] [dim]This run did what it was asked and the two sides do not match, so it " +
             $"returns {ExitCodes.Differences.ToString(CultureInfo.InvariantCulture)} rather than " +
             $"{ExitCodes.Failed.ToString(CultureInfo.InvariantCulture)}, which is what a run that could not make " +
