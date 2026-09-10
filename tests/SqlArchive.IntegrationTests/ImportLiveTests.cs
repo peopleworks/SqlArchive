@@ -57,6 +57,10 @@ public sealed class ImportLiveTests
             Tiny     real            NULL,
             Photo    varbinary(max)  NULL,
             Notes    nvarchar(max)   NULL,
+            -- Nullable and with a default, which is the pair that proves the bulk copy
+            -- keeps nulls: without that, a null arrives as the default, and the default
+            -- is a value that was never in the source.
+            Apodo    nvarchar(50)    NULL CONSTRAINT DF_Customer_Apodo DEFAULT (N'sin apodo'),
             RegionId int             NULL CONSTRAINT FK_Customer_Region REFERENCES dbo.Region(Id),
             Shout    AS UPPER([Name])
         );
@@ -78,7 +82,7 @@ public sealed class ImportLiveTests
     private const string Rows = """
         INSERT INTO dbo.Region (Id, Name) VALUES (1, N'North'), (2, N'South'), (3, N'Este');
 
-        INSERT INTO dbo.Customer (Name, Balance, Huge, Owed, Created, Day, At, Zoned, Ref, Active, Ratio, Tiny, Photo, Notes, RegionId)
+        INSERT INTO dbo.Customer (Name, Balance, Huge, Owed, Created, Day, At, Zoned, Ref, Active, Ratio, Tiny, Photo, Notes, Apodo, RegionId)
         SELECT TOP (50)
                CONCAT(N'Cliente Böhm ', ROW_NUMBER() OVER (ORDER BY (SELECT NULL))),
                ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) * 1.5,
@@ -98,6 +102,7 @@ public sealed class ImportLiveTests
                CASE WHEN ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) % 6 = 0
                     THEN NULL ELSE CONVERT(varbinary(max), REPLICATE(CONVERT(varchar(max), 'ab'), 40000)) END,
                CASE WHEN ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) % 8 = 0 THEN NULL ELSE N'日本語 😀 <&>' END,
+               CASE WHEN ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) % 2 = 0 THEN NULL ELSE N'apodo' END,
                1 + (ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) % 3)
         FROM sys.all_objects;
 
@@ -147,6 +152,14 @@ public sealed class ImportLiveTests
             Assert.Equal(
                 "CLIENTE BÖHM 1",
                 await ScalarStringAsync(destination, "SELECT Shout FROM dbo.Customer WHERE Id = 1;"));
+
+            // A null in a column that has a default is still a null. Twenty-five of the
+            // fifty rows, so a bulk copy that let the default in would be visible here
+            // and, before that, in the row hash.
+            Assert.Equal(
+                25,
+                Convert.ToInt32(await SqlServerFixture.ScalarAsync(
+                    destination, "SELECT COUNT(*) FROM dbo.Customer WHERE Apodo IS NULL;")));
 
             // The view and the procedure came across, which is the modules phase.
             Assert.Equal(50, Convert.ToInt32(await SqlServerFixture.ScalarAsync(destination, "SELECT COUNT(*) FROM dbo.CustomerNames;")));
@@ -649,6 +662,28 @@ public sealed class ImportLiveTests
 
             Assert.Equal(0, Convert.ToInt32(await SqlServerFixture.ScalarAsync(destination, "SELECT COUNT(*) FROM sys.tables;")));
             Assert.False(Directory.Exists(path + ".restore"), "a dry run does not leave a journal behind either");
+
+            // And again over a destination that already holds something, which is the
+            // other route entirely: there the schema comes from a diff rather than from
+            // the phases, and the diff is real - it is read off this table - while still
+            // not being applied.
+            await SqlServerFixture.ExecuteAsync(
+                destination,
+                "CREATE TABLE dbo.Region (Id int NOT NULL CONSTRAINT PK_Region PRIMARY KEY); INSERT INTO dbo.Region (Id) VALUES (1);");
+
+            var migration = await ImportAsync(path, destination, dryRun: true);
+
+            Assert.Contains(migration.Notices, n => n.Contains("migration", StringComparison.Ordinal));
+            Assert.True(migration.SchemaBatches > 0, "the diff it would apply is counted");
+
+            Assert.Equal(1, Convert.ToInt32(await SqlServerFixture.ScalarAsync(destination, "SELECT COUNT(*) FROM sys.tables;")));
+            Assert.Equal(1, await SqlServerFixture.CountAsync(destination, "dbo.Region"));
+
+            // The column the diff would have added is not there, because it was not applied.
+            Assert.Equal(
+                1,
+                Convert.ToInt32(await SqlServerFixture.ScalarAsync(
+                    destination, "SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.Region');")));
         }
         finally
         {
