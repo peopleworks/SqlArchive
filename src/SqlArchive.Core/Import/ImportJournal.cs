@@ -24,7 +24,7 @@ namespace SqlArchive.Core.Import;
 /// redoing it unnecessary, not what makes it safe.
 /// </para>
 /// </summary>
-internal sealed class ImportJournal
+public sealed class ImportJournal
 {
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -118,6 +118,29 @@ internal sealed class ImportJournal
     {
         if(System.IO.Directory.Exists(Directory))
             System.IO.Directory.Delete(Directory, recursive: true);
+    }
+
+    /// <summary>
+    /// Which of the two routes to the archive's shape this restore took, or null when it
+    /// has not decided yet.
+    /// </summary>
+    /// <remarks>
+    /// Recorded before the work rather than after it, unlike everything else here, and
+    /// deliberately: it is a decision and not a step. A restore that runs the archive's
+    /// phases makes the destination non-empty the moment it creates the first table, so a
+    /// resume that decided again would look at a destination full of tables, choose the
+    /// migration route, and try to add the indexes twice - once by diff and once by phase
+    /// 050. The decision has to survive the crash that the tables it created will.
+    /// </remarks>
+    public string? Route
+    {
+        get
+        {
+            var path = System.IO.Path.Combine(Directory, "route.txt");
+            return File.Exists(path) ? File.ReadAllText(path).Trim() : null;
+        }
+
+        set => File.WriteAllText(System.IO.Path.Combine(Directory, "route.txt"), value ?? string.Empty);
     }
 
     /// <summary>The unit name for one table.</summary>

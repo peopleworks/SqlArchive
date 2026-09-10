@@ -24,7 +24,7 @@ namespace SqlArchive.Core.Import;
 /// before the rows and right after them.
 /// </para>
 /// </summary>
-internal static class SchemaScript
+public static class SchemaScript
 {
     /// <summary>
     /// The last phase that runs before the data. Phases are numbered in tens with room
@@ -32,6 +32,12 @@ internal static class SchemaScript
     /// a number this file chose.
     /// </summary>
     private const int LastPhaseBeforeData = 40;
+
+    /// <summary>
+    /// The first phase that belongs to finalizing rather than to shape. Everything from
+    /// here on is a statement the diff cannot express and the destination needs anyway.
+    /// </summary>
+    private const int FirstFinalizePhase = 90;
 
     /// <summary>
     /// The archive's schema entries, in execution order, split at the data.
@@ -47,6 +53,27 @@ internal static class SchemaScript
             (Number(entry) <= LastPhaseBeforeData ? before : after).Add(entry);
 
         return (before, after);
+    }
+
+    /// <summary>
+    /// The finalize phase alone: the sequence positions and <c>SYSTEM_VERSIONING = ON</c>.
+    /// </summary>
+    /// <remarks>
+    /// What a migration runs after its data, and all it runs. The diff has already made
+    /// the destination's shape right - it creates a new table with its keys and indexes
+    /// attached and alters an existing one - so running <c>050_indexes</c> over it would
+    /// try to create every index a second time. Finalize is the exception because the diff
+    /// cannot express it: SQLDiff's renderer deliberately never puts
+    /// <c>SYSTEM_VERSIONING</c> in a <c>CREATE TABLE</c>, since versioning can only be
+    /// turned on for a table that already has its primary key. Both statements in here are
+    /// idempotent - checked against SQL Server 2025 - which is what makes running them
+    /// over a destination that already had them safe.
+    /// </remarks>
+    public static IReadOnlyList<string> Finalize(ArchiveReader archive)
+    {
+        ArgumentNullException.ThrowIfNull(archive);
+
+        return archive.SchemaEntries.Where(e => Number(e) >= FirstFinalizePhase).ToList();
     }
 
     /// <summary>
@@ -188,7 +215,7 @@ internal static class SchemaScript
 /// <param name="Entry">The archive entry it came from, so a failure can say which file to open.</param>
 /// <param name="Index">Its position in that file, counting from zero.</param>
 /// <param name="Sql">The statement or statements, without the <c>GO</c>.</param>
-internal sealed record SchemaBatch(string Entry, int Index, string Sql)
+public sealed record SchemaBatch(string Entry, int Index, string Sql)
 {
     /// <summary>Where this batch is, in the words an error message uses.</summary>
     public string Describe => $"{Entry}, batch {(Index + 1).ToString(CultureInfo.InvariantCulture)}";

@@ -130,7 +130,7 @@ internal static class DestinationCatalog
 /// <param name="IsRowVersion">A <c>rowversion</c>, which the server stamps.</param>
 /// <param name="IsNullable">Whether a row may leave it out.</param>
 /// <param name="HasDefault">Whether a row that leaves it out gets something rather than failing.</param>
-internal sealed record DestinationColumn(
+public sealed record DestinationColumn(
     string Name,
     bool IsIdentity,
     bool IsComputed,
@@ -151,7 +151,7 @@ internal sealed record DestinationColumn(
 /// <param name="ReferencedName">The table it points at.</param>
 /// <param name="IsDisabled">Whether it was already switched off before this restore touched anything.</param>
 /// <param name="IsNotTrusted">Whether SQL Server had already stopped trusting it.</param>
-internal sealed record DestinationForeignKey(
+public sealed record DestinationForeignKey(
     string Name,
     string ParentSchema,
     string ParentName,
@@ -160,7 +160,25 @@ internal sealed record DestinationForeignKey(
     bool IsDisabled,
     bool IsNotTrusted)
 {
+    /// <summary>The three-part name a message uses, so a reader can find the constraint.</summary>
     public string Identifier => $"[{ParentSchema}].[{ParentName}].[{Name}]";
 
+    /// <summary>The table that carries the key - the one an ALTER has to name.</summary>
     public string Parent => SqlRender.Quote(ParentSchema, ParentName);
+
+    /// <summary>The statement that switches the key off for the length of the data phase.</summary>
+    public string Lower => $"ALTER TABLE {Parent} NOCHECK CONSTRAINT {SqlRender.Quote(Name)};";
+
+    /// <summary>
+    /// The statement that puts the key back into the state it was in.
+    /// </summary>
+    /// <param name="revalidate">
+    /// Whether a key that was trusted is validated on the way back. A key that was
+    /// <i>already</i> untrusted goes back untrusted whatever this says: enabling it WITH
+    /// CHECK would silently improve the destination, and a restore that improves things
+    /// nobody asked about is a restore nobody can predict.
+    /// </param>
+    public string Raise(bool revalidate) =>
+        $"ALTER TABLE {Parent} WITH {(revalidate && !IsNotTrusted ? "CHECK" : "NOCHECK")} " +
+        $"CHECK CONSTRAINT {SqlRender.Quote(Name)};";
 }

@@ -40,6 +40,12 @@ namespace SqlArchive.Core.Import;
 /// </summary>
 public sealed class DatabaseImporter
 {
+    /// <summary>The archive's own phases run around the data. What an empty destination gets.</summary>
+    private const string PhaseRoute = "phases";
+
+    /// <summary>The diff applied before the data and the finalize phase after it. What a destination that already holds tables gets.</summary>
+    private const string MigrationRoute = "diff";
+
     private readonly ImportOptions _options;
 
     public DatabaseImporter(ImportOptions options)
@@ -104,11 +110,11 @@ public sealed class DatabaseImporter
 
             if(_options.Mode == ImportMode.Migrate)
             {
-                var (before, after) = SchemaScript.Phases(archive);
-                afterData = after;
-
-                batches += await PrepareShapeAsync(archive, journal, manifest, before, notices, stopwatch, cancellationToken)
+                var shape = await PrepareShapeAsync(archive, journal, manifest, notices, stopwatch, cancellationToken)
                     .ConfigureAwait(false);
+
+                batches += shape.Batches;
+                afterData = shape.AfterData;
             }
 
             var results = await LoadAsync(archivePath, journal, plan, notices, stopwatch, cancellationToken).ConfigureAwait(false);
@@ -242,33 +248,78 @@ public sealed class DatabaseImporter
     /// Brings the destination to the archive's shape, by the route the destination itself
     /// chooses, and answers how many statements that took.
     /// </summary>
-    private async Task<int> PrepareShapeAsync(
+    private async Task<(int Batches, IReadOnlyList<string> AfterData)> PrepareShapeAsync(
         ArchiveReader archive,
         ImportJournal? journal,
         ArchiveManifest manifest,
-        IReadOnlyList<string> beforeData,
         IList<string> notices,
         Stopwatch stopwatch,
         CancellationToken cancellationToken)
     {
         Report("schema", null, 0, 0, 0, stopwatch);
 
-        var extractor = new SqlServerSchemaExtractor();
-        var destination = await extractor.ExtractAsync(_options.ConnectionString, cancellationToken).ConfigureAwait(false);
-        var existing = SnapshotSelection.Tables(destination).Count();
+        var (beforeData, afterData) = SchemaScript.Phases(archive);
+        var route = journal?.Route;
 
-        if(existing == 0)
+        if(route is null)
         {
-            notices.Add(
-                "The destination holds no tables, so the archive's own schema phases are run around the data - " +
-                "bare tables, then the rows, then the keys, indexes and foreign keys. That is the shape the " +
-                "archive was written for, and it is why a restore needs no load order: the foreign keys are not " +
-                "there while the tables are being filled.");
+            var extractor = new SqlServerSchemaExtractor();
+            var current = await extractor.ExtractAsync(_options.ConnectionString, cancellationToken).ConfigureAwait(false);
 
-            return await RunPhasesAsync(archive, journal, "before", beforeData, stopwatch, cancellationToken)
-                .ConfigureAwait(false);
+            route = SnapshotSelection.Tables(current).Any() ? MigrationRoute : PhaseRoute;
+
+            if(journal is not null)
+                journal.Route = route;
+
+            if(route == PhaseRoute)
+            {
+                notices.Add(
+                    "The destination holds no tables, so the archive's own schema phases are run around the data - " +
+                    "bare tables, then the rows, then the keys, indexes and foreign keys. That is the shape the " +
+                    "archive was written for, and it is why a restore needs no load order: the foreign keys are " +
+                    "not there while the tables are being filled.");
+            }
+            else
+            {
+                return (await DiffAsync(journal, manifest, current, notices, cancellationToken).ConfigureAwait(false),
+                        SchemaScript.Finalize(archive));
+            }
         }
 
+        if(route == PhaseRoute)
+        {
+            var batches = await RunPhasesAsync(archive, journal, "before", beforeData, stopwatch, cancellationToken)
+                .ConfigureAwait(false);
+
+            return (batches, afterData);
+        }
+
+        // Resuming a migration whose diff was applied by the earlier run. Extracting the
+        // destination again to diff it again would compare the archive against a database
+        // that has already been altered to match it, which is a lot of work for an empty
+        // script - and the journal has already established this is the same archive and
+        // the same destination.
+        if(journal?.Done(ImportJournal.SchemaUnit("diff")) == true)
+        {
+            notices.Add("The schema diff had already been applied by an earlier run and was not applied again.");
+            return (0, SchemaScript.Finalize(archive));
+        }
+
+        var destination = await new SqlServerSchemaExtractor()
+            .ExtractAsync(_options.ConnectionString, cancellationToken).ConfigureAwait(false);
+
+        return (await DiffAsync(journal, manifest, destination, notices, cancellationToken).ConfigureAwait(false),
+                SchemaScript.Finalize(archive));
+    }
+
+    /// <summary>Brings an existing destination to the archive's shape by diff, and answers how many statements that took.</summary>
+    private async Task<int> DiffAsync(
+        ImportJournal? journal,
+        ArchiveManifest manifest,
+        DatabaseSnapshot destination,
+        IList<string> notices,
+        CancellationToken cancellationToken)
+    {
         // The archive is the desired state and the destination is current, which is the
         // way round that makes this a restore rather than a capture. Drops are off: a
         // table the destination has and the archive does not is somebody's, and a restore
@@ -284,21 +335,13 @@ public sealed class DatabaseImporter
             addOnly: false);
 
         notices.Add(
-            $"The destination already holds {Plural(existing, "table")}, so this " +
-            $"is a migration: {diff.Added.ToString(CultureInfo.InvariantCulture)} object(s) created, " +
+            $"The destination already holds {Plural(SnapshotSelection.Tables(destination).Count(), "table")}, so " +
+            $"this is a migration: {diff.Added.ToString(CultureInfo.InvariantCulture)} object(s) created, " +
             $"{diff.Changed.ToString(CultureInfo.InvariantCulture)} altered, and nothing dropped. Objects the " +
             "destination has and the archive does not are left alone.");
 
         if(!diff.HasChanges)
             return 0;
-
-        var unit = ImportJournal.SchemaUnit("diff");
-
-        if(journal?.Done(unit) == true)
-        {
-            notices.Add("The schema diff had already been applied by an earlier run and was not applied again.");
-            return 0;
-        }
 
         var batches = SqlBatchSplitter.Split(diff.Script)
             .Select((sql, i) => new SchemaBatch("the schema diff", i, sql))
@@ -311,7 +354,7 @@ public sealed class DatabaseImporter
             .ExecuteAsync(_options.ConnectionString, batches, _options.CommandTimeoutSeconds, cancellationToken)
             .ConfigureAwait(false);
 
-        journal?.Complete(unit, diff.Script);
+        journal?.Complete(ImportJournal.SchemaUnit("diff"), diff.Script);
         return executed;
     }
 
@@ -424,7 +467,12 @@ public sealed class DatabaseImporter
                 return Ordered(plan, results);
             }
 
-            await PublishAllAsync(archivePath, journal, work, results, stopwatch, cancellationToken).ConfigureAwait(false);
+            var fenced = fence.Lowered
+                .SelectMany(k => new[] { $"{k.ParentSchema}.{k.ParentName}", $"{k.ReferencedSchema}.{k.ReferencedName}" })
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            await PublishAllAsync(archivePath, journal, work, fenced, results, stopwatch, cancellationToken)
+                .ConfigureAwait(false);
         }
         finally
         {
@@ -446,6 +494,7 @@ public sealed class DatabaseImporter
         string archivePath,
         ImportJournal? journal,
         List<PlannedTable> work,
+        IReadOnlySet<string> fenced,
         ConcurrentDictionary<string, ImportTableResult> results,
         Stopwatch stopwatch,
         CancellationToken cancellationToken)
@@ -471,7 +520,7 @@ public sealed class DatabaseImporter
                 try
                 {
                     result = await publisher
-                        .PublishAsync(archivePath, table.Entry, table.Columns!, token)
+                        .PublishAsync(archivePath, table.Entry, table.Columns!, fenced.Contains(table.Key), token)
                         .ConfigureAwait(false);
                 }
                 catch(Exception ex) when(ex is not OperationCanceledException)

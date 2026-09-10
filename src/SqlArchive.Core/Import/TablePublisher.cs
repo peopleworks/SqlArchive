@@ -58,10 +58,15 @@ internal sealed class TablePublisher
     /// <param name="entry">The manifest's entry for the table - what the guard compares against.</param>
     /// <param name="columns">The archived columns, in the archive's order.</param>
     /// <param name="cancellationToken">Cancellation.</param>
+    /// <param name="fenced">
+    /// True when a foreign key of this table is switched off for the length of the data
+    /// phase, which is what rules the swap out. See <see cref="PublishStagedAsync"/>.
+    /// </param>
     public async Task<ImportTableResult> PublishAsync(
         string archivePath,
         ArchiveTableEntry entry,
         IReadOnlyList<ArchiveColumn> columns,
+        bool fenced,
         CancellationToken cancellationToken)
     {
         var destination = SqlRender.Quote(entry.Schema, entry.Name);
@@ -74,15 +79,7 @@ internal sealed class TablePublisher
             .ColumnsAsync(connection, entry.Schema, entry.Name, _options.CommandTimeoutSeconds, cancellationToken)
             .ConfigureAwait(false);
 
-        if(destinationColumns.Count == 0)
-        {
-            throw new ImportShapeException(
-                $"{entry.Identifier} is not in the destination. With --data-only the shape has to be there " +
-                "already; without it, the schema phases or the diff should have created it, so this means one " +
-                "of them was refused.");
-        }
-
-        Align(entry, columns, destinationColumns);
+        DestinationShape.Check(entry.Identifier, columns, destinationColumns);
 
         // Named once. Two calls to the generator would produce two names, and the guard
         // would read a table nobody had loaded.
@@ -128,8 +125,10 @@ internal sealed class TablePublisher
             }
 
             var publication = await PublishStagedAsync(
-                connection, entry, columns, destination, staging, destinationColumns, cancellationToken)
+                connection, entry, columns, destination, staging, destinationColumns, fenced, cancellationToken)
                 .ConfigureAwait(false);
+
+            await ReseedAsync(connection, entry, destination, destinationColumns, cancellationToken).ConfigureAwait(false);
 
             return new ImportTableResult(entry.Schema, entry.Name, ImportTableOutcome.Published, entry.RowCount, publication);
         }
@@ -137,61 +136,6 @@ internal sealed class TablePublisher
         {
             if(staging is not null)
                 await DropStagingAsync(connection, staging).ConfigureAwait(false);
-        }
-    }
-
-    /// <summary>
-    /// Refuses before anything is created when the destination will not take the
-    /// archive's rows, naming the table and the column.
-    /// </summary>
-    /// <remarks>
-    /// Three ways a shape can be wrong, and they are different failures. A column the
-    /// archive carries and the destination does not have is a table that is not the same
-    /// table. A column the destination has but will not be written - computed, a
-    /// rowversion, a period column - is one the archive deliberately does not carry, and
-    /// the two agreeing about that is the check. And a column the destination requires
-    /// and the archive has nothing for is a row that cannot be inserted at all, which is
-    /// worth saying here rather than as constraint violation number 515 halfway through a
-    /// bulk copy.
-    /// </remarks>
-    private static void Align(
-        ArchiveTableEntry entry,
-        IReadOnlyList<ArchiveColumn> columns,
-        IReadOnlyList<DestinationColumn> destinationColumns)
-    {
-        var byName = destinationColumns.ToDictionary(c => c.Name, StringComparer.OrdinalIgnoreCase);
-
-        foreach(var column in columns)
-        {
-            if(!byName.TryGetValue(column.Name, out var destination))
-            {
-                throw new ImportShapeException(
-                    $"{entry.Identifier} in the destination has no column called '{column.Name}', and the archive " +
-                    "carries values for it. The two are not the same table.");
-            }
-
-            if(!destination.IsWritable)
-            {
-                throw new ImportShapeException(
-                    $"{entry.Identifier}.[{column.Name}] is " +
-                    (destination.IsComputed ? "a computed column" :
-                     destination.IsGeneratedAlways ? "a GENERATED ALWAYS period column" : "a rowversion") +
-                    " in the destination, and SQL Server assigns it rather than accepting it. The archive carries " +
-                    "a value for it, so the destination's column is not the column that was archived.");
-            }
-        }
-
-        var archived = columns.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        foreach(var destination in destinationColumns)
-        {
-            if(!destination.IsWritable || archived.Contains(destination.Name) || destination.IsNullable || destination.HasDefault)
-                continue;
-
-            throw new ImportShapeException(
-                $"{entry.Identifier}.[{destination.Name}] is NOT NULL with no default in the destination, and the " +
-                "archive carries nothing for it. Every row would be refused; the column has to be made nullable, " +
-                "given a default, or dropped.");
         }
     }
 
@@ -274,6 +218,7 @@ internal sealed class TablePublisher
         string destination,
         string staging,
         IReadOnlyList<DestinationColumn> destinationColumns,
+        bool fenced,
         CancellationToken cancellationToken)
     {
         // Checked against SQL Server 2025: a destination carrying a SYSTEM_TIME period
@@ -289,6 +234,27 @@ internal sealed class TablePublisher
                 .ConfigureAwait(false);
 
             return "insert (the destination has a SYSTEM_TIME period, which no switch can take)";
+        }
+
+        // A table whose foreign keys are switched off cannot be swapped either, and this
+        // one took two failures against a live server to find. SwapPublisher brings the
+        // staged table up to the destination's shape first, and the shape it copies comes
+        // from a snapshot: SwapAlignment re-creates every foreign key of the destination
+        // on staging, enabled and WITH CHECK, whatever state the destination's own copy
+        // is in. So staging is validated against a parent table that is in the middle of
+        // being replaced (error 547 on the ALTER), and if it survives that, the switch
+        // itself refuses because a constraint disabled on one side and enabled on the
+        // other is a shape mismatch (4917: "the source table constraint must be enabled").
+        // Publishing by insert keeps the destination's object identity just as well - it
+        // is the metadata-only exchange that is lost, not the object - so the cost here
+        // is speed on a migration, and the alternative was dropping the operator's
+        // foreign keys and hoping to put them back.
+        if(fenced)
+        {
+            await InsertAsync(connection, columns, destination, staging, destinationColumns, cancellationToken)
+                .ConfigureAwait(false);
+
+            return "insert (a foreign key of this table is switched off, and a switch needs both sides to agree)";
         }
 
         var step = new SyncStep
@@ -313,6 +279,44 @@ internal sealed class TablePublisher
         await _publisher.PublishAsync(_options.ConnectionString, staging, step, cancellationToken).ConfigureAwait(false);
 
         return "swap";
+    }
+
+    /// <summary>
+    /// Puts the destination's identity counter where the restored rows leave it, so the
+    /// next row anything else inserts is the next number and not a collision.
+    /// </summary>
+    /// <remarks>
+    /// <b>Checked against SQL Server 2025, and the reason this is here rather than left to
+    /// the publisher.</b> <c>DBCC CHECKIDENT(t, RESEED, n)</c> means two different things:
+    /// on a table that has had a row inserted into it the next value is <c>n + 1</c>, and
+    /// on one that has not it is <c>n</c> itself. A restore's destination is always the
+    /// second kind - it was created by phase 040 and filled by an <c>ALTER TABLE ...
+    /// SWITCH</c>, which is not an insert - so <c>SwapPublisher</c>'s reseed to the highest
+    /// staged value leaves the counter one short and the first row somebody inserts
+    /// afterwards collides with the last row restored. SyncJob never sees it because its
+    /// destinations are tables that have been inserted into for years.
+    /// <para>
+    /// The bare form has no such ambiguity: it sets the current value to the maximum in
+    /// the column, and the next row is the one after it. Running it after the publisher's
+    /// reseed is idempotent and corrects both cases.
+    /// </para>
+    /// </remarks>
+    private async Task ReseedAsync(
+        SqlConnection connection,
+        ArchiveTableEntry entry,
+        string destination,
+        IReadOnlyList<DestinationColumn> destinationColumns,
+        CancellationToken cancellationToken)
+    {
+        // Nothing to correct on an empty table, and DBCC would have no maximum to read.
+        if(entry.RowCount == 0 || !destinationColumns.Any(c => c.IsIdentity))
+            return;
+
+        await DestinationCatalog.ExecuteAsync(
+            connection,
+            $"DBCC CHECKIDENT('{destination.Replace("'", "''", StringComparison.Ordinal)}', RESEED) WITH NO_INFOMSGS;",
+            _options.CommandTimeoutSeconds,
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

@@ -1,5 +1,4 @@
 using Microsoft.Data.SqlClient;
-using SqlSchemaDiff.Services;
 
 namespace SqlArchive.Core.Import;
 
@@ -24,7 +23,7 @@ namespace SqlArchive.Core.Import;
 /// validating them means anything: the rows on both sides are the archive's.
 /// </para>
 /// </summary>
-internal sealed class ForeignKeyFence
+public sealed class ForeignKeyFence
 {
     private readonly List<DestinationForeignKey> _lowered = [];
 
@@ -62,29 +61,45 @@ internal sealed class ForeignKeyFence
 
         foreach(var key in all)
         {
-            // A key that was already off stays off and is left out of the record. Putting
-            // back something that was not there is the one way this could damage a
-            // destination it was meant to leave alone.
-            if(key.IsDisabled)
-                continue;
-
-            if(!published.Contains(Key(key.ParentSchema, key.ParentName)) &&
-               !published.Contains(Key(key.ReferencedSchema, key.ReferencedName)))
+            if(!Touches(key, published))
                 continue;
 
             fence._lowered.Add(key);
 
             if(!dryRun)
             {
-                await DestinationCatalog.ExecuteAsync(
-                    connection,
-                    $"ALTER TABLE {key.Parent} NOCHECK CONSTRAINT {SqlRender.Quote(key.Name)};",
-                    commandTimeoutSeconds,
-                    cancellationToken).ConfigureAwait(false);
+                await DestinationCatalog
+                    .ExecuteAsync(connection, key.Lower, commandTimeoutSeconds, cancellationToken)
+                    .ConfigureAwait(false);
             }
         }
 
         return fence;
+    }
+
+    /// <summary>
+    /// True when this restore has to switch the key off: it is on, and one of the two
+    /// tables it joins is about to be replaced whole.
+    /// </summary>
+    /// <remarks>
+    /// Either side, not just the referenced one. A child whose parent is being replaced
+    /// cannot be filled before the parent is - and the parent is empty in the middle of
+    /// its own publication whichever order the two go in, so there is no order that makes
+    /// this unnecessary.
+    /// <para>
+    /// A key that was <i>already</i> off stays off and is not recorded. Putting back
+    /// something that was not there is the one way this could damage a destination it was
+    /// meant to leave alone.
+    /// </para>
+    /// </remarks>
+    public static bool Touches(DestinationForeignKey key, IReadOnlySet<string> published)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(published);
+
+        return !key.IsDisabled &&
+               (published.Contains($"{key.ParentSchema}.{key.ParentName}") ||
+                published.Contains($"{key.ReferencedSchema}.{key.ReferencedName}"));
     }
 
     /// <summary>
@@ -113,14 +128,7 @@ internal sealed class ForeignKeyFence
 
         foreach(var key in _lowered)
         {
-            // WITH CHECK validates and re-trusts; WITH NOCHECK enables and leaves the
-            // key untrusted, which is what a key that was already untrusted has to go
-            // back to. Enabling a previously untrusted key WITH CHECK would silently
-            // improve the destination, and a restore that improves things it was not
-            // asked about is a restore nobody can predict.
-            var validate = revalidate && !key.IsNotTrusted;
-            var sql = $"ALTER TABLE {key.Parent} WITH {(validate ? "CHECK" : "NOCHECK")} " +
-                      $"CHECK CONSTRAINT {SqlRender.Quote(key.Name)};";
+            var sql = key.Raise(revalidate);
 
             try
             {
@@ -140,10 +148,8 @@ internal sealed class ForeignKeyFence
                 try
                 {
                     await DestinationCatalog.ExecuteAsync(
-                        connection,
-                        $"ALTER TABLE {key.Parent} WITH NOCHECK CHECK CONSTRAINT {SqlRender.Quote(key.Name)};",
-                        commandTimeoutSeconds,
-                        cancellationToken).ConfigureAwait(false);
+                        connection, key.Raise(revalidate: false), commandTimeoutSeconds, cancellationToken)
+                        .ConfigureAwait(false);
 
                     enabled = true;
                 }
@@ -161,6 +167,4 @@ internal sealed class ForeignKeyFence
 
         return problems;
     }
-
-    private static string Key(string schema, string name) => $"{schema}.{name}";
 }
