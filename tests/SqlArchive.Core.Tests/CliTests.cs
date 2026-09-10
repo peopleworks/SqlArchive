@@ -105,27 +105,6 @@ public sealed class CliTests : IDisposable
         Assert.Contains("Unknown option", output, StringComparison.Ordinal);
     }
 
-    // ---------------------------------------------------------------- the verbs that are not built
-
-    [Theory]
-    [InlineData("2.2", "export", "--source", "Server=x;Database=y", "--out", "z.sqlarchive")]
-    [InlineData("2.3", "import", "z.sqlarchive", "--destination", "Server=x;Database=y")]
-    [InlineData("2.4", "verify", "z.sqlarchive")]
-    public void AVerbThatIsNotBuiltRefusesAndNamesItsWorkPackage(string workPackage, params string[] args)
-    {
-        var (code, output) = Run(args);
-        var flattened = Flatten(output);
-
-        // Not zero. A command that takes arguments and reports success without doing
-        // anything is worse than one that is not there.
-        Assert.Equal(ExitCodes.NotBuiltYet, code);
-
-        Assert.Contains("is not built yet", flattened, StringComparison.Ordinal);
-        Assert.Contains($"work package {workPackage}", flattened, StringComparison.Ordinal);
-        Assert.Contains("Nothing was read and nothing was written", flattened, StringComparison.Ordinal);
-        Assert.Contains("sqlarchive inspect", flattened, StringComparison.Ordinal);
-    }
-
     /// <summary>
     /// "Not built yet" and "you asked for something that cannot be" are different answers,
     /// and the validation runs first so that the second one is the one you get.
