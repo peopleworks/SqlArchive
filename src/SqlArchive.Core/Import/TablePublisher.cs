@@ -91,37 +91,10 @@ internal sealed class TablePublisher
                 .CreateAsync(_options.ConnectionString, destination, stagingName, cancellationToken)
                 .ConfigureAwait(false);
 
-            var loaded = await LoadAsync(
-                connection, archivePath, entry, columns, staging, cancellationToken).ConfigureAwait(false);
-
-            // First check: the archive read back as the manifest declares it. Its
-            // difference message is the one Verify prints, so a refusal here and a verify
-            // of the same file say the same words about the same fault.
-            if(loaded.Difference is { } difference)
-                return Refused(entry, loaded.Rows, difference);
-
-            // Second check: what actually landed. The rows can be read perfectly and
-            // written wrong - a batch lost, a batch sent twice - and only a read of the
-            // staging table can see that.
-            var digest = await LiveTableDigest.ComputeAsync(
-                connection,
-                entry.Schema,
-                stagingName,
-                columns,
-                rowFilter: null,
-                _options.CommandTimeoutSeconds,
-                cancellationToken).ConfigureAwait(false);
-
-            if(digest.Rows != entry.RowCount ||
-               !string.Equals(digest.RowHash, entry.RowHash, StringComparison.OrdinalIgnoreCase))
+            if(await StageAsync(connection, archivePath, entry, columns, stagingName, staging, cancellationToken)
+                   .ConfigureAwait(false) is { } refused)
             {
-                return Refused(
-                    entry,
-                    digest.Rows,
-                    $"{entry.Identifier}: the archive was read correctly and what reached the staging table is " +
-                    $"not it - the manifest declares {Count(entry.RowCount)} hashing to {entry.RowHash}, and " +
-                    $"staging holds {Count(digest.Rows)} hashing to {digest.RowHash}. The destination has not " +
-                    "been touched.");
+                return refused;
             }
 
             var publication = await PublishStagedAsync(
@@ -140,13 +113,70 @@ internal sealed class TablePublisher
     }
 
     /// <summary>
+    /// Fills a staging table from the archive and runs both halves of the exact guard over
+    /// it. Null when the table may be published; otherwise the refusal, and the
+    /// destination has not been touched.
+    /// </summary>
+    /// <param name="connection">An open connection to the destination.</param>
+    /// <param name="archivePath">The archive.</param>
+    /// <param name="entry">The manifest's entry for the table - what both checks compare against.</param>
+    /// <param name="columns">The archived columns, in the archive's order.</param>
+    /// <param name="stagingName">The staging table's name alone, in the destination table's schema.</param>
+    /// <param name="staging">The staging table, quoted, as the bulk copy names it.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    internal async Task<ImportTableResult?> StageAsync(
+        SqlConnection connection,
+        string archivePath,
+        ArchiveTableEntry entry,
+        IReadOnlyList<ArchiveColumn> columns,
+        string stagingName,
+        string staging,
+        CancellationToken cancellationToken)
+    {
+        var loaded = await LoadAsync(
+            connection, archivePath, entry, columns, staging, cancellationToken).ConfigureAwait(false);
+
+        // First check: the archive read back as the manifest declares it. Its
+        // difference message is the one Verify prints, so a refusal here and a verify
+        // of the same file say the same words about the same fault.
+        if(loaded.Difference is { } difference)
+            return Refused(entry, loaded.Rows, difference);
+
+        // Second check: what actually landed. The rows can be read perfectly and
+        // written wrong - a batch lost, a batch sent twice - and only a read of the
+        // staging table can see that.
+        var digest = await LiveTableDigest.ComputeAsync(
+            connection,
+            entry.Schema,
+            stagingName,
+            columns,
+            rowFilter: null,
+            _options.CommandTimeoutSeconds,
+            cancellationToken).ConfigureAwait(false);
+
+        if(digest.Rows != entry.RowCount ||
+           !string.Equals(digest.RowHash, entry.RowHash, StringComparison.OrdinalIgnoreCase))
+        {
+            return Refused(
+                entry,
+                digest.Rows,
+                $"{entry.Identifier}: the archive was read correctly and what reached the staging table is " +
+                $"not it - the manifest declares {Count(entry.RowCount)} hashing to {entry.RowHash}, and " +
+                $"staging holds {Count(digest.Rows)} hashing to {digest.RowHash}. The destination has not " +
+                "been touched.");
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Takes the staging table away. Not through the factory's <c>DropAsync</c>, which
     /// deliberately leaves alone any table the caller named - and this one is named here,
     /// because the guard has to read the staging table by name a moment after it is
     /// created and parsing a quoted identifier back into its two parts is a thing to get
     /// wrong for no gain.
     /// </summary>
-    private async Task DropStagingAsync(SqlConnection connection, string staging)
+    internal async Task DropStagingAsync(SqlConnection connection, string staging)
     {
         try
         {
@@ -221,19 +251,25 @@ internal sealed class TablePublisher
         bool fenced,
         CancellationToken cancellationToken)
     {
-        // Checked against SQL Server 2025: a destination carrying a SYSTEM_TIME period
-        // cannot be reached by a switch - "target table has SYSTEM_TIME PERIOD while
-        // source table does not have it", error 13577 - because the staging table is
-        // deliberately built without the period columns, which is the only way rows can
-        // be loaded into it at all. SyncJob's own capability check does not catch this
-        // one: it reads sys.tables.temporal_type, which is 0 while system versioning is
-        // off, and off is exactly the state a restore loads rows in.
+        // A table with a SYSTEM_TIME period does not get here. Where the destination
+        // already has one - a migration, or --data-only - the importer hands the table and
+        // its history to TemporalPublisher, which is the only thing that can write the
+        // rows' own periods. And on a fresh restore the period does not exist yet while
+        // the rows load: 040 created the table without it and 090 adds it afterwards, so
+        // the table is an ordinary one and the switch below takes it. Checked against SQL
+        // Server 2025. The 13577 this used to route around - "target table has SYSTEM_TIME
+        // PERIOD while source table does not have it", which SyncJob's capability check
+        // cannot see because it reads temporal_type and that is 0 with versioning off -
+        // needs a period on the destination, and at load time there is none.
+        //
+        // What is left under this test is a GENERATED ALWAYS column of any other kind -
+        // a ledger table's - which the archive does not carry and no switch can take.
         if(destinationColumns.Any(c => c.IsGeneratedAlways))
         {
             await InsertAsync(connection, columns, destination, staging, destinationColumns, cancellationToken)
                 .ConfigureAwait(false);
 
-            return "insert (the destination has a SYSTEM_TIME period, which no switch can take)";
+            return "insert (the destination has GENERATED ALWAYS columns, which no switch can take)";
         }
 
         // A table whose foreign keys are switched off cannot be swapped either, and this
@@ -301,7 +337,7 @@ internal sealed class TablePublisher
     /// reseed is idempotent and corrects both cases.
     /// </para>
     /// </remarks>
-    private async Task ReseedAsync(
+    internal async Task ReseedAsync(
         SqlConnection connection,
         ArchiveTableEntry entry,
         string destination,
@@ -351,10 +387,9 @@ internal sealed class TablePublisher
 
         try
         {
-            // DELETE and not TRUNCATE. A table with a period is system-versioned or about
-            // to be, and both refuse a truncate; on a versioned one the delete is also the
-            // right answer, because the rows it removes are written to the history table,
-            // which is the whole reason the destination is temporal.
+            // DELETE and not TRUNCATE: a table another foreign key points at refuses a
+            // truncate even with that key switched off (4712), and this path is the one
+            // a fenced table takes.
             await ExecuteAsync(connection, transaction, $"DELETE FROM {destination};", cancellationToken).ConfigureAwait(false);
 
             if(keepIdentity)
@@ -373,8 +408,37 @@ internal sealed class TablePublisher
         }
         catch
         {
-            await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+            await RollbackQuietlyAsync(transaction).ConfigureAwait(false);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Rolls back, and never lets the rollback's own failure take the place of the error
+    /// that made it necessary.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not the case it was first written for.</b> Some errors end the transaction on the
+    /// server's side before the client hears of them - a <c>SYSTEM_VERSIONING = ON</c>
+    /// refused with 13573 leaves <c>@@TRANCOUNT</c> at 0, and so does a trigger's own
+    /// <c>ROLLBACK</c> - and this was written on the belief that the driver then refuses a
+    /// second rollback. It does not: measured on SQL Server 2025 with SqlClient 6.1, by two
+    /// mutations that swapped this for a plain rollback and went unnoticed, the driver
+    /// accepts it quietly. What is left is a connection that broke half way, where the
+    /// server rolls the transaction back when it notices and a rollback here would only
+    /// throw a second error over the first. That path has no test.
+    /// </remarks>
+    internal static async Task RollbackQuietlyAsync(SqlTransaction transaction)
+    {
+        try
+        {
+            await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch(Exception ex) when(ex is InvalidOperationException or SqlException)
+        {
+            // A connection that broke half way - the driver says so with either type - is
+            // rolled back by the server when it notices; the error that broke it is the
+            // one worth reporting.
         }
     }
 
@@ -399,7 +463,7 @@ internal sealed class TablePublisher
     /// The staging table's name: the destination's, an unmistakable middle, and eight hex
     /// digits so two runs of the same restore cannot collide.
     /// </summary>
-    private static string StagingName(string table)
+    internal static string StagingName(string table)
     {
         const int suffixLength = 20; // "_sqlarchive_" plus eight hex digits
         var stem = table.Length > 128 - suffixLength ? table[..(128 - suffixLength)] : table;

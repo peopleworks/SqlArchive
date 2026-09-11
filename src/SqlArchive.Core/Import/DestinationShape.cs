@@ -24,10 +24,17 @@ public static class DestinationShape
     /// When the rows will not go in. Three ways, and they are different failures. A column
     /// the archive carries and the destination does not have is a table that is not the
     /// same table. A column the destination has but will not accept - computed, a
-    /// rowversion, a period column - is one the archive deliberately does not carry, and
-    /// the two agreeing about that is the check. And a column the destination requires and
-    /// the archive has nothing for is a row that cannot be inserted at all, which is worth
-    /// saying here rather than as error 515 halfway through a bulk copy.
+    /// rowversion, a ledger's GENERATED ALWAYS column - is one the archive deliberately
+    /// does not carry, and the two agreeing about that is the check. And a column the
+    /// destination requires and the archive has nothing for is a row that cannot be
+    /// inserted at all, which is worth saying here rather than as error 515 halfway
+    /// through a bulk copy.
+    /// <para>
+    /// A period column is the exception, and it is not a loophole. The archive carries it
+    /// and the destination refuses a plain <c>INSERT</c> into it, and both are right: the
+    /// restore takes the period off, writes the rows' own values and puts the period back,
+    /// all in one transaction - see <c>TemporalPublisher</c>.
+    /// </para>
     /// </exception>
     public static void Check(
         string identifier,
@@ -57,7 +64,7 @@ public static class DestinationShape
                     "carries values for it. The two are not the same table.");
             }
 
-            if(!target.IsWritable)
+            if(!target.IsWritable && !target.IsPeriod)
             {
                 throw new ImportShapeException(
                     $"{identifier}.[{column.Name}] is " + Why(target) +
@@ -82,6 +89,6 @@ public static class DestinationShape
 
     private static string Why(DestinationColumn column) =>
         column.IsComputed ? "a computed column"
-        : column.IsGeneratedAlways ? "a GENERATED ALWAYS period column"
+        : column.IsGeneratedAlways ? "a GENERATED ALWAYS column that is not a period's"
         : "a rowversion";
 }

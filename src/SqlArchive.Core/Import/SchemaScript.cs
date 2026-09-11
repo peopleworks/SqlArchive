@@ -56,7 +56,8 @@ public static class SchemaScript
     }
 
     /// <summary>
-    /// The finalize phase alone: the sequence positions and <c>SYSTEM_VERSIONING = ON</c>.
+    /// The finalize phase alone: the sequence positions, the <c>SYSTEM_TIME</c> periods and
+    /// <c>SYSTEM_VERSIONING = ON</c>.
     /// </summary>
     /// <remarks>
     /// What a migration runs after its data, and all it runs. The diff has already made
@@ -65,9 +66,11 @@ public static class SchemaScript
     /// try to create every index a second time. Finalize is the exception because the diff
     /// cannot express it: SQLDiff's renderer deliberately never puts
     /// <c>SYSTEM_VERSIONING</c> in a <c>CREATE TABLE</c>, since versioning can only be
-    /// turned on for a table that already has its primary key. Both statements in here are
-    /// idempotent - checked against SQL Server 2025 - which is what makes running them
-    /// over a destination that already had them safe.
+    /// turned on for a table that already has its primary key. A sequence restart and a
+    /// <c>SYSTEM_VERSIONING = ON</c> naming the history the table already has are both
+    /// idempotent - checked against SQL Server 2025. An <c>ADD PERIOD</c> is not, and a
+    /// migration's destination always has the period by then; see
+    /// <see cref="WithoutPeriodsAlreadyThereAsync"/>, which takes those out.
     /// </remarks>
     public static IReadOnlyList<string> Finalize(ArchiveReader archive)
     {
@@ -75,6 +78,79 @@ public static class SchemaScript
 
         return archive.SchemaEntries.Where(e => Number(e) >= FirstFinalizePhase).ToList();
     }
+
+    /// <summary>
+    /// The batches without every <c>ADD PERIOD FOR SYSTEM_TIME</c> whose table already has
+    /// its period - which is what makes the finalize phase safe to run after a migration.
+    /// </summary>
+    /// <remarks>
+    /// <b>Why it has to exist.</b> An archive's <c>090_finalize.sql</c> adds the period of
+    /// every temporal table, because on a fresh restore the tables were created without it.
+    /// After a migration the destination already has it: the diff created the table with
+    /// its period, or added it to one that lacked it, and the data phase put it back
+    /// itself - see <c>TemporalPublisher</c>. Adding it again is refused, and refused at
+    /// compile time, so no <c>TRY</c> could catch it: "Temporal SYSTEM_TIME period is
+    /// already defined on table", error 13597, measured on SQL Server 2025. The other two
+    /// kinds of statement in the phase - a sequence restart and <c>SYSTEM_VERSIONING =
+    /// ON</c> naming the history it already has - are idempotent, the second measured too.
+    /// <para>
+    /// Decided by the destination's catalog, not by which route was taken, so a table the
+    /// diff could not give its period still gets it here.
+    /// </para>
+    /// </remarks>
+    public static async Task<IReadOnlyList<SchemaBatch>> WithoutPeriodsAlreadyThereAsync(
+        string connectionString,
+        IReadOnlyList<SchemaBatch> batches,
+        int commandTimeoutSeconds,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(connectionString);
+        ArgumentNullException.ThrowIfNull(batches);
+
+        if(!batches.Any(b => PeriodAddedBy(b.Sql) is not null))
+            return batches;
+
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        var kept = new List<SchemaBatch>(batches.Count);
+
+        foreach(var batch in batches)
+        {
+            if(PeriodAddedBy(batch.Sql) is { } table &&
+               await DestinationCatalog.HasPeriodAsync(connection, table, commandTimeoutSeconds, cancellationToken)
+                   .ConfigureAwait(false))
+            {
+                continue;
+            }
+
+            kept.Add(batch);
+        }
+
+        return kept;
+    }
+
+    /// <summary>
+    /// The table a batch adds a <c>SYSTEM_TIME</c> period to, quoted as the batch names it,
+    /// or null when the batch is anything else.
+    /// </summary>
+    /// <remarks>
+    /// The batch is SqlSchemaDiff's <c>SqlRender.BuildPeriodAdd</c> as the exporter wrote
+    /// it into the archive: the <c>ALTER TABLE</c> first, then an <c>ADD HIDDEN</c> for each
+    /// hidden period column. Those go with it, because they only make sense on a period
+    /// that statement created.
+    /// </remarks>
+    public static string? PeriodAddedBy(string sql)
+    {
+        ArgumentNullException.ThrowIfNull(sql);
+
+        var match = PeriodAdd.Match(sql);
+        return match.Success ? match.Groups["table"].Value : null;
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex PeriodAdd = new(
+        @"^\s*ALTER\s+TABLE\s+(?<table>\[(?:[^\]]|\]\])+\]\s*\.\s*\[(?:[^\]]|\]\])+\])\s+ADD\s+PERIOD\s+FOR\s+SYSTEM_TIME\b",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>
     /// Reads the entries and returns every batch in them, in order, with the entry each
@@ -148,6 +224,7 @@ public static class SchemaScript
         {
             var failed = new List<SchemaBatch>();
             var errors = new List<string>();
+            var numbers = new List<int>();
 
             foreach(var batch in pending)
             {
@@ -162,6 +239,7 @@ public static class SchemaScript
                 {
                     failed.Add(batch);
                     errors.Add($"{batch.Describe}: {ex.Message}");
+                    numbers.Add(ex.Number);
                 }
             }
 
@@ -171,11 +249,21 @@ public static class SchemaScript
             // A pass that fixed nothing will not fix anything on the next one either.
             if(failed.Count == pending.Count)
             {
+                // The finalize phase is where a restored timeline is handed back to SQL
+                // Server, and where it can still be refused - most usefully, over a clock.
+                // The server's rule is quoted below; this says what it means here.
+                var temporal = TemporalRefusal.Explain(numbers);
+
                 throw new ImportException(
                     $"{Plural(failed.Count, "statement")} of the archive's schema would not run against the " +
                     "destination, and re-running them changed nothing, so this is not an ordering problem. " +
                     "The destination is left with whatever the statements before them did - SQL Server's DDL is " +
                     "transactional per statement, not per script." +
+                    (temporal is null
+                        ? string.Empty
+                        : Environment.NewLine + Environment.NewLine + temporal + " The rows are already in; the " +
+                          "statements that failed are the ones listed, and they can be run by hand from the " +
+                          "archive's schema/090_finalize.sql once the cause is gone.") +
                     Environment.NewLine + Environment.NewLine +
                     string.Join(Environment.NewLine, errors));
             }

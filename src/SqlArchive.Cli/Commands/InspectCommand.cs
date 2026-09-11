@@ -241,6 +241,12 @@ public sealed class InspectCommand : AsyncCommand<InspectCommand.Settings>
         // specific to a table - the row filter - under one that is not.
         var hashless = manifest.Tables.Count > 0 && manifest.Tables.All(t => string.IsNullOrEmpty(t.RowHash));
 
+        // Which table is whose history is recorded on the parent in the schema, not on the
+        // entry; this is where a person reading the list gets it said.
+        var parents = manifest.Schema is { } schema
+            ? HistoryLink.Parents(schema)
+            : new Dictionary<string, SqlSchemaDiff.Models.TableModel>();
+
         long rows = 0;
 
         foreach(var entry in manifest.Tables.OrderBy(t => t.Schema, StringComparer.OrdinalIgnoreCase)
@@ -255,7 +261,7 @@ public sealed class InspectCommand : AsyncCommand<InspectCommand.Settings>
                 entry.DataSkipped ? "[dim]-[/]" : entry.RowCount.ToString("N0", CultureInfo.InvariantCulture),
                 HashCell(entry),
                 entry.DataFiles.Count.ToString("N0", CultureInfo.InvariantCulture),
-                Notes(entry, hashless));
+                Notes(entry, hashless, parents.GetValueOrDefault($"{entry.Schema}.{entry.Name}")));
         }
 
         AnsiConsole.Write(table);
@@ -396,9 +402,12 @@ public sealed class InspectCommand : AsyncCommand<InspectCommand.Settings>
             : Escape(entry.RowHash[..HashPreview]) + "[dim]...[/]";
     }
 
-    private static string Notes(ArchiveTableEntry entry, bool wholeArchiveHasNoHashes)
+    private static string Notes(ArchiveTableEntry entry, bool wholeArchiveHasNoHashes, SqlSchemaDiff.Models.TableModel? parent)
     {
         var notes = new List<string>();
+
+        if(parent is not null)
+            notes.Add($"[dim]history of[/] {Escape($"[{parent.Schema}].[{parent.Name}]")}");
 
         if(entry.DataSkipped)
             notes.Add("[yellow]schema only, rows not archived[/]");

@@ -93,23 +93,98 @@ A row is a JSON **object** on one line: no whitespace anywhere, properties in th
 
 ### Which columns are carried
 
-Every column of the table in `column_id` order, **except** three kinds, which are left
-out because SQL Server refuses to be told what they are:
+Every column of the table in `column_id` order, **except** two kinds, which are left out
+because SQL Server refuses to be told what they are:
 
 | Left out | Why |
 |---|---|
 | Computed columns | Derived from the others. `INSERT` refuses to name one; its value in a restored table follows from the values that were restored. |
 | `rowversion` / `timestamp` | Assigned by the server from a counter belonging to one database. `INSERT` refuses: *"Cannot insert an explicit value into a timestamp column."* Its value means nothing in another database, and a restored row necessarily gets a different one. |
-| `GENERATED ALWAYS AS ROW START` / `ROW END` | The period columns of a system-versioned table. Refused **even with `SYSTEM_VERSIONING` set to `OFF`**, which is the state a restore loads rows in — verified against SQL Server 2025. |
+
+And one narrower kind: a `GENERATED ALWAYS` column that is **not** one of a
+`SYSTEM_TIME` period's two — the transaction and sequence columns of a ledger table
+(`generated_always_type` 7 to 10). The server writes those too, and nothing in this
+format restores a ledger.
+
+**The two period columns of a system-versioned table are carried**, `GENERATED ALWAYS AS
+ROW START` and `ROW END` both, with the values the source had. SQL Server refuses to be
+told them only while the period exists — even with `SYSTEM_VERSIONING` off, measured
+against SQL Server 2025 — and a restore can create the table without the period, load
+the rows, and add it afterwards. See *System-versioned tables* below for the order that
+takes. Leaving them out would stamp every restored row with the instant of the restore,
+and `FOR SYSTEM_TIME AS OF` any moment before it would answer nothing.
 
 > **Differs from the work-package spec**, which lists `rowversion` in the encoding table.
 > Its encoding is defined below and is reachable if a caller asks for it, but the format
 > does not carry the column: an archive that included it could never pass its own
 > `verify` after a restore, because the destination's values are necessarily different.
 
+> **Changed before version 1 was published.** Until WP 2.6 the period columns were a
+> third kind left out, and a system-versioned table's history was not in the archive at
+> all. Nothing had been published, so version 1 is the version that carries them; see
+> the note under *Reading a version you do not know*.
+
 The manifest records which columns a table omitted and why, and so does the README, so a
 person reading the JSONL and counting fewer columns than the `CREATE TABLE` has an answer
 without reading any source.
+
+### System-versioned tables
+
+**A history table is a table of the archive in its own right**: its own entry in the
+manifest's `tables`, its own data files, row count and row hash, and its own `CREATE
+TABLE` in `schema/040_tables.sql`. It is in `schema` as a table whose `temporalType` is
+`HISTORY_TABLE`, and the table it belongs to names it, in `historyTableSchema` and
+`historyTableName`. No field of the table entry repeats that link: the snapshot is where
+the archive says what a table is, and a second statement of the same fact is a second
+place for the archive to disagree with itself.
+
+**Its columns are its own, read from the catalog, never derived from the parent's.** What
+SQL Server puts in a history table is its decision, and it is not the parent minus
+something: the parent's identity is a plain column there; a computed column of the parent
+is a real, materialised, nullable column holding data; the period columns are plain
+`datetime2`; every key, default and check is gone. So the rule above, applied to the
+history table as it stands, carries every column the parent leaves out — with one
+exception. **A parent's `rowversion` is kept in its history as a `timestamp`**, holding
+the old values, and it is left out of the history exactly as it is left out of the table.
+It cannot be restored: no `INSERT` writes a `timestamp`; declaring the column `binary(8)`
+so the old values could be written is refused when versioning adopts the table (*"column
+'V' has data type binary(8) in history table … which is different from corresponding
+column type timestamp"*, error 13525); and a column cannot be altered to `timestamp`
+afterwards (4927). All three measured against SQL Server 2025. The history's **rows** are
+restored; the value in that one column of each is the destination's, as it is in the
+current table.
+
+**The order a restore takes**, which is what the phases say and what anybody restoring by
+hand has to do:
+
+1. `040_tables.sql` creates the table **without** its `PERIOD FOR SYSTEM_TIME`: the two
+   period columns are plain `datetime2 NOT NULL` of their own scale, not `HIDDEN`. It
+   creates the history table as an ordinary table.
+2. The rows of both are loaded, period columns included.
+3. `090_finalize.sql` adds the period — `ALTER TABLE … ADD PERIOD FOR SYSTEM_TIME` —
+   which turns the loaded columns into `GENERATED ALWAYS` in place and keeps their values;
+   then `ADD HIDDEN` on each column that was hidden, which SQL Server only allows on a
+   column that is already `GENERATED ALWAYS`; then `SYSTEM_VERSIONING = ON (HISTORY_TABLE
+   = …)`, which **adopts** the history table as it stands, rows and all.
+
+The restored table then answers `FOR SYSTEM_TIME AS OF` exactly as the source did, at
+every instant. `ALTER COLUMN … GENERATED ALWAYS` does not exist (13589): adding the period
+is the only way in.
+
+SQL Server checks four things at step 3, and each is a property of the rows rather than of
+the restore:
+
+| Refused when | Error | Holds for an archived table because |
+|---|---|---|
+| a current row's end is not the largest value **its scale** can hold — `9999-12-31T23:59:59.9999999` at `datetime2(7)`, `…59.999` at `datetime2(3)` | 13575 | every current row of a table with a period ends there, and the encoding above writes it exactly |
+| a current row's start is after the server's own clock | 13542 | the source wrote it in the past — **unless the restore server's clock is behind the source's** |
+| a history row's end is after the server's own clock | 13543 | the same, and the same exception |
+| two history rows of one key overlap, or overlap the current row | 13573 | SQL Server wrote the history; a period that starts and ends at one instant, left by two updates in one transaction, is accepted |
+
+The clock is the one a restore can meet with nothing wrong in the archive. It is the
+destination's clock SQL Server compares against, not the source's; the answer is to wait
+until the destination's clock has passed the latest instant in the archive, or to put it
+right.
 
 ---
 
@@ -284,6 +359,10 @@ Nulls are written rather than omitted. `"rowFilter": null` says the field exists
 table was not filtered; leaving it out leaves a reader to work out whether the export had
 no filter or the writer had no such concept.
 
+A history table has an entry like any other table's and nothing more. Which table it is
+the history of is in `schema`, on the parent — see *System-versioned tables*. A history
+table the export left without its rows says so the only way any table does: `dataSkipped`.
+
 > **Additions to the sketch in `DESIGN.md`:** `format`, `source.productVersion`,
 > `omittedColumns` and the top-level `files`. `format` is the one that matters — dbdumper's
 > manifest also declares `formatVersion: 1`, and without something naming whose format it
@@ -298,6 +377,14 @@ tell you"* beats a parse failure. Unknown properties are kept rather than droppe
 root and per table, so `inspect` can show them and a rewrite does not throw them away.
 Refusing happens where it matters — at the point of restoring data — and the manifest
 carries a flag saying so.
+
+> **Why the carried period columns did not move `formatVersion`.** They change what a
+> version 1 row of a temporal table contains, and a reader built before that change
+> reads such a row as wrong — **loudly**: its decoder refuses the first line with *"the
+> row names a column, 'ValidFrom', that the table does not have"*, and its verify reports
+> a content difference it cannot explain. It never restores one silently. And no such
+> reader was ever published: version 1 is defined by the first build that ships, which is
+> this one.
 
 ---
 

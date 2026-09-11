@@ -89,10 +89,7 @@ public sealed class ArchiveVerifier
         {
             Report("schema", null, 0, 0);
 
-            var extractor = new SqlServerSchemaExtractor();
-            var live = await extractor.ExtractAsync(connectionString, cancellationToken).ConfigureAwait(false);
-
-            notices.AddRange(extractor.Notices);
+            var live = await ReadLiveSchemaAsync(connectionString, notices, cancellationToken).ConfigureAwait(false);
             database = live.DatabaseName;
 
             schema = CompareSchema(manifest, live, notices);
@@ -118,6 +115,40 @@ public sealed class ArchiveVerifier
             Tables = tables,
             Notices = notices
         };
+    }
+
+    /// <summary>
+    /// The database's schema with its history tables in it, which is the shape an archive
+    /// has. Without them every archive of a system-versioned table would report its history
+    /// as a table the database does not have, on the very database it was taken from.
+    /// </summary>
+    private static async Task<DatabaseSnapshot> ReadLiveSchemaAsync(
+        string connectionString,
+        List<string> notices,
+        CancellationToken cancellationToken)
+    {
+        var extractor = new SqlServerSchemaExtractor();
+
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        var extracted = await extractor.ExtractAsync(connection, null, cancellationToken).ConfigureAwait(false);
+        var extractNotices = extractor.Notices.ToList();
+
+        var histories = await HistoryTables
+            .AddAsync(extractor, connection, null, extracted, cancellationToken)
+            .ConfigureAwait(false);
+
+        notices.AddRange(HistoryTables.WithoutSkipsOf(extractNotices, histories));
+        notices.AddRange(histories.Notices);
+
+        // Not refused, unlike on the way out: a verify reports, and a history table the
+        // database names and cannot produce is reported as missing from it by the table
+        // comparison, which is the answer.
+        foreach(var missing in histories.Missing)
+            notices.Add($"{missing} is named as a history table and could not be read from the database's catalog.");
+
+        return histories.Snapshot;
     }
 
     // ------------------------------------------------------------- is the archive intact?

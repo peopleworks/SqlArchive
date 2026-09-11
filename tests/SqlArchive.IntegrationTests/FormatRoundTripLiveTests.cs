@@ -415,12 +415,19 @@ public sealed class FormatRoundTripLiveTests
     }
 
     /// <summary>
-    /// A rowversion and a GENERATED ALWAYS period column both refuse an explicit value.
-    /// That is the whole reason neither is carried, so it is checked against the server
-    /// rather than taken from the documentation.
+    /// A rowversion refuses an explicit value, always. A period column refuses one only
+    /// while the period exists - with versioning off too - and takes one the moment the
+    /// period is gone. That difference is the whole reason the first is left out of the
+    /// archive and the second is carried, so it is checked against the server rather than
+    /// taken from the documentation.
     /// </summary>
+    /// <remarks>
+    /// Until WP 2.6 this was <c>TheServerRefusesTheColumnsTheArchiveLeavesOut</c> and ended
+    /// asserting that a temporal table's archived columns were its key alone. The refusal
+    /// it measured is still true; what it concluded from it was the loss of every period.
+    /// </remarks>
     [LiveFact]
-    public async Task TheServerRefusesTheColumnsTheArchiveLeavesOut()
+    public async Task TheServerRefusesARowVersionAlwaysAndAPeriodColumnOnlyWhileThePeriodExists()
     {
         var source = await _server.CreateDatabaseAsync();
 
@@ -453,7 +460,24 @@ public sealed class FormatRoundTripLiveTests
         var snapshot = await new SqlServerSchemaExtractor().ExtractAsync(source, CancellationToken.None);
         var temporal = snapshot.Objects.Single(o => o.Name == "Temporal").Table!;
 
-        Assert.Equal(["Id"], ArchiveColumns.For(temporal).Select(c => c.Name).ToArray());
+        // The archive carries the period, because a restore can take it: with the period
+        // dropped the same columns are plain datetime2, the same INSERT goes in, and the
+        // period goes back on over the rows.
+        Assert.Equal(["Id", "SysStart", "SysEnd"], ArchiveColumns.For(temporal).Select(c => c.Name).ToArray());
+
+        await SqlServerFixture.ExecuteAsync(source, "ALTER TABLE dbo.Temporal DROP PERIOD FOR SYSTEM_TIME;");
+        await SqlServerFixture.ExecuteAsync(
+            source, "INSERT INTO dbo.Temporal (Id, SysStart, SysEnd) VALUES (1, '2020-01-01', '9999-12-31 23:59:59.9999999');");
+        await SqlServerFixture.ExecuteAsync(source, "ALTER TABLE dbo.Temporal ADD PERIOD FOR SYSTEM_TIME (SysStart, SysEnd);");
+
+        Assert.Equal(
+            new DateTime(2020, 1, 1),
+            (DateTime)(await SqlServerFixture.ScalarAsync(source, "SELECT SysStart FROM dbo.Temporal WHERE Id = 1;"))!);
+
+        Assert.Equal(
+            1,
+            Convert.ToInt32(await SqlServerFixture.ScalarAsync(
+                source, "SELECT COUNT(*) FROM sys.periods WHERE object_id = OBJECT_ID(N'dbo.Temporal');")));
     }
 
     private async Task Seed(string connectionString)

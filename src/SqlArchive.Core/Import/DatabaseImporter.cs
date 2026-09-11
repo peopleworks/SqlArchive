@@ -107,6 +107,7 @@ public sealed class DatabaseImporter
             }
 
             var afterData = Array.Empty<string>().AsEnumerable();
+            var migrated = false;
 
             if(_options.Mode == ImportMode.Migrate)
             {
@@ -115,6 +116,7 @@ public sealed class DatabaseImporter
 
                 batches += shape.Batches;
                 afterData = shape.AfterData;
+                migrated = shape.Migrated;
             }
 
             var results = await LoadAsync(archivePath, journal, plan, notices, stopwatch, cancellationToken).ConfigureAwait(false);
@@ -130,7 +132,8 @@ public sealed class DatabaseImporter
 
             Report("finalize", null, results.Sum(r => r.Rows), results.Count, results.Count, stopwatch);
 
-            batches += await RunPhasesAsync(archive, journal, "after", afterData, stopwatch, cancellationToken)
+            batches += await RunPhasesAsync(
+                    archive, journal, "after", afterData, stopwatch, cancellationToken, skipPeriodsAlreadyThere: migrated)
                 .ConfigureAwait(false);
 
             succeeded = true;
@@ -225,7 +228,7 @@ public sealed class DatabaseImporter
 
             if(columns.Count == 0)
             {
-                plan.Add(new PlannedTable(entry, null, "every column of it is computed, a rowversion or a period column, so the archive carries no value for any of them"));
+                plan.Add(new PlannedTable(entry, null, "every column of it is computed, a rowversion or a ledger's GENERATED ALWAYS column, so the archive carries no value for any of them"));
                 continue;
             }
 
@@ -246,9 +249,10 @@ public sealed class DatabaseImporter
 
     /// <summary>
     /// Brings the destination to the archive's shape, by the route the destination itself
-    /// chooses, and answers how many statements that took.
+    /// chooses, and answers how many statements that took, what runs after the data, and
+    /// whether the shape came from a diff.
     /// </summary>
-    private async Task<(int Batches, IReadOnlyList<string> AfterData)> PrepareShapeAsync(
+    private async Task<(int Batches, IReadOnlyList<string> AfterData, bool Migrated)> PrepareShapeAsync(
         ArchiveReader archive,
         ImportJournal? journal,
         ArchiveManifest manifest,
@@ -282,7 +286,8 @@ public sealed class DatabaseImporter
             else
             {
                 return (await DiffAsync(journal, manifest, current, notices, cancellationToken).ConfigureAwait(false),
-                        SchemaScript.Finalize(archive));
+                        SchemaScript.Finalize(archive),
+                        true);
             }
         }
 
@@ -291,7 +296,7 @@ public sealed class DatabaseImporter
             var batches = await RunPhasesAsync(archive, journal, "before", beforeData, stopwatch, cancellationToken)
                 .ConfigureAwait(false);
 
-            return (batches, afterData);
+            return (batches, afterData, false);
         }
 
         // Resuming a migration whose diff was applied by the earlier run. Extracting the
@@ -302,14 +307,15 @@ public sealed class DatabaseImporter
         if(journal?.Done(ImportJournal.SchemaUnit("diff")) == true)
         {
             notices.Add("The schema diff had already been applied by an earlier run and was not applied again.");
-            return (0, SchemaScript.Finalize(archive));
+            return (0, SchemaScript.Finalize(archive), true);
         }
 
         var destination = await new SqlServerSchemaExtractor()
             .ExtractAsync(_options.ConnectionString, cancellationToken).ConfigureAwait(false);
 
         return (await DiffAsync(journal, manifest, destination, notices, cancellationToken).ConfigureAwait(false),
-                SchemaScript.Finalize(archive));
+                SchemaScript.Finalize(archive),
+                true);
     }
 
     /// <summary>Brings an existing destination to the archive's shape by diff, and answers how many statements that took.</summary>
@@ -326,8 +332,14 @@ public sealed class DatabaseImporter
         // that removed it would be doing something nobody asked for. A rebuild is on,
         // because the rebuild is SQLDiff's row-preserving one - that is the whole reason
         // this is a migration and not a drop.
+        //
+        // The archive's history tables are left out of it. The destination's side never
+        // has one - the extractor skips them - so the differ would propose creating each,
+        // and the CREATE collides with the table SQL Server made from the parent's
+        // SYSTEM_VERSIONING clause. The parent is what the diff aligns; SQL Server carries
+        // a column change on a versioned table into its history itself.
         var diff = new SchemaDiffer().Diff(
-            manifest.Schema!,
+            HistoryLink.Without(manifest.Schema!),
             destination,
             includeDrops: false,
             includeTableDrops: false,
@@ -359,13 +371,24 @@ public sealed class DatabaseImporter
     }
 
     /// <summary>Runs one half of the archive's phases, unless an earlier run already did.</summary>
+    /// <param name="archive">The archive.</param>
+    /// <param name="journal">The journal, or null for a run that keeps none.</param>
+    /// <param name="half">Which half, as the journal names it.</param>
+    /// <param name="entries">The schema entries to run.</param>
+    /// <param name="stopwatch">For progress.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <param name="skipPeriodsAlreadyThere">
+    /// True after a migration, whose destination already has every period the finalize
+    /// phase would add - see <see cref="SchemaScript.WithoutPeriodsAlreadyThereAsync"/>.
+    /// </param>
     private async Task<int> RunPhasesAsync(
         ArchiveReader archive,
         ImportJournal? journal,
         string half,
         IEnumerable<string> entries,
         Stopwatch stopwatch,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool skipPeriodsAlreadyThere = false)
     {
         var names = entries.ToList();
 
@@ -383,6 +406,13 @@ public sealed class DatabaseImporter
 
         if(_options.DryRun)
             return batches.Count;
+
+        if(skipPeriodsAlreadyThere)
+        {
+            batches = await SchemaScript
+                .WithoutPeriodsAlreadyThereAsync(_options.ConnectionString, batches, _options.CommandTimeoutSeconds, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         var executed = await SchemaScript
             .ExecuteAsync(_options.ConnectionString, batches, _options.CommandTimeoutSeconds, cancellationToken)
@@ -471,7 +501,18 @@ public sealed class DatabaseImporter
                 .SelectMany(k => new[] { $"{k.ParentSchema}.{k.ParentName}", $"{k.ReferencedSchema}.{k.ReferencedName}" })
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            await PublishAllAsync(archivePath, journal, work, fenced, results, stopwatch, cancellationToken)
+            // Read now, after the schema is in place and before a row moves: which of the
+            // destination's tables has a SYSTEM_TIME period, and which is whose history. On
+            // a fresh restore the answer is none - the archive's 040 creates every table
+            // without its period, which is what lets the rows' own periods load and the
+            // ordinary publication take them. Everywhere else a table with a period and
+            // its history are published together, by TemporalPublisher.
+            var temporal = await DestinationCatalog
+                .TemporalTablesAsync(connection, _options.CommandTimeoutSeconds, cancellationToken)
+                .ConfigureAwait(false);
+
+            await PublishAllAsync(
+                    archivePath, journal, Units(work, temporal), work.Count, fenced, results, notices, stopwatch, cancellationToken)
                 .ConfigureAwait(false);
         }
         finally
@@ -493,9 +534,11 @@ public sealed class DatabaseImporter
     private async Task PublishAllAsync(
         string archivePath,
         ImportJournal? journal,
-        List<PlannedTable> work,
+        IReadOnlyList<LoadUnit> units,
+        int tables,
         IReadOnlySet<string> fenced,
         ConcurrentDictionary<string, ImportTableResult> results,
+        IList<string> notices,
         Stopwatch stopwatch,
         CancellationToken cancellationToken)
     {
@@ -507,56 +550,184 @@ public sealed class DatabaseImporter
             CommandTimeoutSeconds = _options.CommandTimeoutSeconds
         }, new SwapPublisher());
 
+        var timelines = new TemporalPublisher(_options, publisher);
+
         var done = 0;
         var rows = 0L;
+        var reruns = new ConcurrentQueue<string>();
 
         await Parallel.ForEachAsync(
-            work,
+            units,
             new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, _options.Parallelism), CancellationToken = cancellationToken },
-            async (table, token) =>
+            async (unit, token) =>
             {
-                ImportTableResult result;
+                IReadOnlyList<ImportTableResult> published;
 
                 try
                 {
-                    result = await publisher
-                        .PublishAsync(archivePath, table.Entry, table.Columns!, fenced.Contains(table.Key), token)
-                        .ConfigureAwait(false);
+                    published = await RerunDeadlockVictimAsync(
+                        async () => unit.Temporal is { } temporal
+                            ? await timelines
+                                .PublishAsync(archivePath, temporal, Member(unit.Table), Member(unit.History), token)
+                                .ConfigureAwait(false)
+                            : [await publisher
+                                .PublishAsync(archivePath, unit.Table!.Entry, unit.Table.Columns!, fenced.Contains(unit.Table.Key), token)
+                                .ConfigureAwait(false)],
+                        unit,
+                        reruns,
+                        token).ConfigureAwait(false);
                 }
                 catch(Exception ex) when(ex is not OperationCanceledException)
                 {
-                    // A table that threw was not published: every route to the
-                    // destination is one transaction, so there is no half-loaded state
-                    // for this to be hiding. Which is what makes carrying on a choice
-                    // rather than a gamble.
+                    // A unit that threw was not published: every route to the destination
+                    // is one transaction - a temporal table and its history share theirs -
+                    // so there is no half-loaded state for this to be hiding. Which is what
+                    // makes carrying on a choice rather than a gamble.
                     if(!_options.ContinueOnError)
                         throw;
 
-                    result = new ImportTableResult(
-                        table.Entry.Schema, table.Entry.Name, ImportTableOutcome.Failed, 0, Reason: ex.Message);
+                    published = unit.Members
+                        .Select(t => new ImportTableResult(t.Entry.Schema, t.Entry.Name, ImportTableOutcome.Failed, 0, Reason: ex.Message))
+                        .ToList();
                 }
 
-                results[table.Key] = result;
-
-                // The marker goes on after the publication has committed, so a run killed
-                // in the middle of one leaves no marker and the next run does it again -
-                // which is safe, because the table still holds what it held before.
-                if(result.Outcome is ImportTableOutcome.Published)
+                foreach(var result in published)
                 {
-                    journal?.Complete(
-                        ImportJournal.TableUnit(table.Entry.Schema, table.Entry.Name),
-                        result.Rows.ToString(CultureInfo.InvariantCulture));
-                }
+                    results[$"{result.Schema}.{result.Name}"] = result;
 
-                Report(
-                    "data",
-                    table.Entry.Identifier,
-                    Interlocked.Add(ref rows, result.Rows),
-                    Interlocked.Increment(ref done),
-                    work.Count,
-                    stopwatch);
+                    // The marker goes on after the publication has committed, so a run
+                    // killed in the middle of one leaves no marker and the next run does
+                    // it again - which is safe, because the table still holds what it
+                    // held before.
+                    if(result.Outcome is ImportTableOutcome.Published)
+                    {
+                        journal?.Complete(
+                            ImportJournal.TableUnit(result.Schema, result.Name),
+                            result.Rows.ToString(CultureInfo.InvariantCulture));
+                    }
+
+                    Report(
+                        "data",
+                        result.Identifier,
+                        Interlocked.Add(ref rows, result.Rows),
+                        Interlocked.Increment(ref done),
+                        tables,
+                        stopwatch);
+                }
             }).ConfigureAwait(false);
+
+        if(!reruns.IsEmpty)
+        {
+            notices.Add(
+                $"SQL Server chose {Plural(reruns.Count, "publication")} as a deadlock victim and each was run again, " +
+                $"as the server asks: {string.Join(", ", reruns)}. A publication is one transaction, so the attempt " +
+                "that lost left nothing behind. The collision is between one table's publication reading the whole " +
+                "catalog - SyncJob.Core 1.0.0's staging factory and swap each do, per table - and another's dropping " +
+                "its staging table.");
+        }
     }
+
+    /// <summary>How many times one unit is attempted when SQL Server keeps choosing it as a deadlock victim.</summary>
+    private const int DeadlockAttempts = 4;
+
+    /// <summary>
+    /// Runs one unit's publication, and runs it again when SQL Server chose it as a
+    /// deadlock victim - error 1205, whose own text is "Rerun the transaction".
+    /// </summary>
+    /// <remarks>
+    /// <b>Found against SQL Server 2025, and older than the temporal work that made it
+    /// frequent.</b> Tables are published in parallel, and SyncJob.Core 1.0.0 reads the
+    /// whole database's catalog once per table - in <c>StagingTableFactory.CreateAsync</c>
+    /// and again in <c>SwapPublisher.SwapAsync</c> - while another table's publication is
+    /// dropping its staging or discard table. The catalog read holds shared locks on system
+    /// base tables and waits for the dropped table's schema lock; the drop holds that lock
+    /// and waits for the rows the read has locked. Three deadlock graphs of exactly that
+    /// shape are in the server's <c>system_health</c> session, one of them from before
+    /// WP 2.6 - the one-off red that was noted after Phase 2 and never reproduced.
+    /// <para>
+    /// Running it again is safe for the same reason carrying on after a failure is: every
+    /// publication is one transaction, so the one that lost left the destination as it was,
+    /// and a replace run twice is a replace. Nothing but 1205 is retried, and only a few
+    /// times: a deadlock that keeps recurring is a fault worth seeing.
+    /// </para>
+    /// </remarks>
+    private static async Task<IReadOnlyList<ImportTableResult>> RerunDeadlockVictimAsync(
+        Func<Task<IReadOnlyList<ImportTableResult>>> publish,
+        LoadUnit unit,
+        ConcurrentQueue<string> reruns,
+        CancellationToken cancellationToken)
+    {
+        for(var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await publish().ConfigureAwait(false);
+            }
+            catch(Exception ex) when(attempt < DeadlockAttempts && IsDeadlockVictim(ex))
+            {
+                reruns.Enqueue(string.Join(" and ", unit.Members.Select(m => m.Entry.Identifier)));
+
+                // A moment's pause, longer each time, so the two do not meet again in the
+                // same place for the same reason.
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt), cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static bool IsDeadlockVictim(Exception exception)
+    {
+        for(var current = exception; current is not null; current = current.InnerException)
+        {
+            if(current is SqlException sql && sql.Errors.Cast<SqlError>().Any(e => e.Number == 1205))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The tables to publish, grouped into what is published together: a destination table
+    /// with a <c>SYSTEM_TIME</c> period and its history table as one unit, every other
+    /// table on its own. In the order of the manifest.
+    /// </summary>
+    private static List<LoadUnit> Units(List<PlannedTable> work, IReadOnlyList<DestinationTemporalTable> temporal)
+    {
+        var byKey = work.ToDictionary(p => p.Key, StringComparer.OrdinalIgnoreCase);
+
+        var byTable = temporal.ToDictionary(t => t.Key, StringComparer.OrdinalIgnoreCase);
+
+        var byHistory = temporal
+            .Where(t => t.HistoryKey is not null)
+            .ToDictionary(t => t.HistoryKey!, StringComparer.OrdinalIgnoreCase);
+
+        var grouped = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var units = new List<LoadUnit>(work.Count);
+
+        foreach(var table in work)
+        {
+            var timeline = byTable.GetValueOrDefault(table.Key) ?? byHistory.GetValueOrDefault(table.Key);
+
+            if(timeline is null)
+            {
+                units.Add(new LoadUnit(table, null, null));
+                continue;
+            }
+
+            // The pair is built at whichever of the two the manifest lists first.
+            if(!grouped.Add(timeline.Key))
+                continue;
+
+            units.Add(new LoadUnit(
+                byKey.GetValueOrDefault(timeline.Key),
+                timeline.HistoryKey is { } history ? byKey.GetValueOrDefault(history) : null,
+                timeline));
+        }
+
+        return units;
+    }
+
+    private static TemporalMember? Member(PlannedTable? table) =>
+        table is null ? null : new TemporalMember(table.Entry, table.Columns!);
 
     private ImportResult Finish(
         string archivePath,
@@ -611,5 +782,19 @@ public sealed class DatabaseImporter
     private sealed record PlannedTable(ArchiveTableEntry Entry, IReadOnlyList<ArchiveColumn>? Columns, string? Reason)
     {
         public string Key => $"{Entry.Schema}.{Entry.Name}";
+    }
+
+    /// <summary>
+    /// What is published in one go. An ordinary table on its own; or, with
+    /// <paramref name="Temporal"/> set, a destination table with a period and its history,
+    /// either of which may be absent from the publication.
+    /// </summary>
+    /// <param name="Table">The table - for a temporal unit, the one with the period.</param>
+    /// <param name="History">Its history table, when that is being published too.</param>
+    /// <param name="Temporal">The destination's temporal state, for a temporal unit.</param>
+    private sealed record LoadUnit(PlannedTable? Table, PlannedTable? History, DestinationTemporalTable? Temporal)
+    {
+        public IEnumerable<PlannedTable> Members =>
+            new[] { Table, History }.Where(t => t is not null).Select(t => t!);
     }
 }

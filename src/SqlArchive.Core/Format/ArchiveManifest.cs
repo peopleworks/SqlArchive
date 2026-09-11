@@ -196,9 +196,9 @@ public sealed class ArchiveTableEntry
 
     /// <summary>
     /// Columns the table has and the archive does not carry, with the reason: computed,
-    /// rowversion, GENERATED ALWAYS. Written so that someone reading the JSONL by hand
-    /// and finding fewer columns than the CREATE TABLE has an answer without reading
-    /// this source.
+    /// rowversion, or GENERATED ALWAYS for a ledger table's columns - never a period's,
+    /// which are carried. Written so that someone reading the JSONL by hand and finding
+    /// fewer columns than the CREATE TABLE has an answer without reading this source.
     /// </summary>
     public Dictionary<string, string> OmittedColumns { get; set; } = new(StringComparer.Ordinal);
 

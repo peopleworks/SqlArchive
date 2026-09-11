@@ -81,9 +81,9 @@ public sealed class ImportOptions
     /// Carry on with the remaining tables when one fails or is refused.
     /// <para>
     /// Safe by construction rather than by care: every table is published in one
-    /// transaction of its own, so the ones that succeeded are whole and the ones that
-    /// failed were never touched. There is no half-loaded state for this flag to leave
-    /// behind.
+    /// transaction of its own - a system-versioned table and its history share one, being
+    /// one timeline - so the ones that succeeded are whole and the ones that failed were
+    /// never touched. There is no half-loaded state for this flag to leave behind.
     /// </para>
     /// </summary>
     public bool ContinueOnError { get; init; }
