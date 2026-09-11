@@ -6,7 +6,7 @@ del equipo para la Fase 2; cada paquete de trabajo se especifica contra él.
 SqlArchive exporta una base SQL Server completa a un archivo legible, la restaura en otra,
 y verifica que las dos coinciden. No lleva motor propio: compone
 [`PeopleWorks.SqlSchemaDiff.Core`](https://www.nuget.org/packages/PeopleWorks.SqlSchemaDiff.Core)
-1.7.0 para el esquema y
+1.8.1 para el esquema y
 [`PeopleWorks.SyncJob.Core`](https://www.nuget.org/packages/PeopleWorks.SyncJob.Core)
 1.0.0 para los datos.
 
@@ -277,10 +277,14 @@ resuelven mejor con la cabeza fresca que con prisa.
   normaliza:** pasar CRLF a LF cambiaría el texto de un módulo en `sys.sql_modules` tras
   restaurar, y el diff del import lo leería como deriva. Es cosmético — el hash sólo se
   compara contra su propio archivo — pero conviene que esté escrito.
-- **Para SqlSchemaDiff 1.8:** `SqlServerSchemaExtractor.ExtractAsync` sólo acepta una cadena
-  de conexión, así que bajo `snapshot-isolation` el esquema se lee **fuera** de la
-  transacción y no comparte instante con los datos. Bajo `snapshot` no ocurre, porque la
-  base entera está congelada. Es un hueco de API del motor de esquema, no del formato.
+- ~~**Para SqlSchemaDiff 1.8:** `ExtractAsync` sólo acepta una cadena de conexión.~~
+  **Cerrado en 1.8.** El export lee ahora el esquema dentro de su propia sesión de lectura.
+  Pero conviene saber lo que eso compra y lo que no, porque 1.8b lo midió y corrigió su
+  propia documentación: bajo aislamiento `SNAPSHOT` el catálogo **no** está versionado —un
+  `ALTER TABLE` concurrente se confirma y la lectura del catálogo lo ve—, y lo que protege
+  es que la siguiente lectura de datos de esa transacción falla con 3961. Bajo
+  `SERIALIZABLE` el esquema sí queda fijado. Misma sesión y misma unidad de trabajo; no un
+  esquema coherente con los datos por construcción.
 
 ### Lo que encontraron 2.3 y 2.4 contra el servidor
 
@@ -323,7 +327,11 @@ día que el motor cambie lo dice una prueba y no un cliente.
   tiene esa ambigüedad.
 - **`SwapCapability` no ve una tabla temporal con el versionado apagado**, porque lee
   `sys.tables.temporal_type`, que vale 0 en ese estado —justo el estado en el que un
-  restore carga filas. La comprobación previa pasa y el `SWITCH` falla con 13577.
+  restore carga filas. La comprobación previa pasa y el `SWITCH` falla con 13577. Sigue
+  siendo cierto en SyncJob.Core 1.0.0, pero **desde WP 2.6 el import ya no pasa por ahí**:
+  en un restore nuevo la tabla no tiene período al cargar, así que el swap aplica sin
+  más; en un destino que ya existe, la tabla y su historia se publican juntas por
+  `TemporalPublisher`, en una transacción, y el swap no interviene.
 - **En una migración, ninguna tabla tocada por una FK se puede publicar por `SWITCH`.**
   `SwapAlignment` recrea las claves del destino sobre la staging **habilitadas y `WITH
   CHECK`**, así que la staging se valida contra un padre que está a mitad de

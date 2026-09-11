@@ -53,17 +53,28 @@ the JSONL encoding, the value-encoding table that defines equality, the row hash
 the reader for dbdumper's manifest. [`FORMAT.md`](FORMAT.md) is its normative
 specification and [`DESIGN.md`](DESIGN.md) says why each decision went the way it did.
 
+### A system-versioned table comes back with its timeline
+
+A temporal table is archived **with its history**, and a restored one answers
+`FOR SYSTEM_TIME AS OF` exactly as the source did — at every instant, including the one
+most restores get wrong: the stretch between the last change and the moment of the restore,
+where a naive copy has stamped every current row with the time it was loaded and so answers
+nothing at all. The period columns travel as data, the history table travels as a table of
+its own, and the period is put back on the rows *after* they are loaded, which is the only
+order SQL Server accepts that keeps them. `verify` compares the history like any other table.
+
+If the history is the reason you are archiving the database, this is what it is for.
+
 ### What it does not carry, and says so here rather than letting you find out
 
-- **A system-versioned table restores its current rows and an empty history.** SQL Server
-  builds the history table from the `SYSTEM_VERSIONING` clause, so the schema is right; the
-  history's rows are not in the archive. If the history is the reason you are archiving the
-  database, this is not the tool for it yet.
 - **A memory-optimized table cannot be restored into a fresh database**: its
   `MEMORY_OPTIMIZED_DATA` filegroup is not in the snapshot, so the table phase fails.
 - **`--table` and `--exclude` on `import` select rows, not schema.** The schema phases are
   the archive's own files and run whole, so an excluded table is still created and left
   empty. The summary says so per table.
+- **A restored identity continues from the highest id in the current rows**, not from the
+  source's counter. An id that exists only in a temporal table's history — a row that was
+  deleted — can therefore be handed out again.
 - The verdict says *which table* changed, never which row — the trade `DESIGN.md` makes for
   a manifest that costs bytes per table instead of as much as the data.
 
@@ -194,9 +205,9 @@ Schema  2 schemas
 ```
 
 It says the things a partial archive has to say out loud — which tables were filtered,
-which were archived without their rows, and which columns the format does not carry
-(`rowversion`, computed columns and the period columns of a versioned table, because
-SQL Server refuses to be told what those are).
+which were archived without their rows, which table is whose history, and which columns the
+format does not carry (`rowversion` and computed columns, because SQL Server refuses to be
+told what those are).
 
 **It reads dbdumper's archives too**, and says what they cannot tell you: dbdumper's
 manifest carries no per-table row hash, so a verify against one can compare the schema
