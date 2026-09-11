@@ -237,6 +237,13 @@ public sealed class TemporalLiveTests
         var (source, destination) = await _server.CreatePairAsync();
         var timeline = await SeedAsync(source);
         await SeedOwnTimelineAsync(destination);
+
+        // A retention the destination chose. The archive knows nothing of it - SqlSchemaDiff
+        // does not read it - and versioning is switched off and on again under it, so the
+        // restore has to put it back itself or silently lift somebody's policy.
+        await SqlServerFixture.ExecuteAsync(
+            destination, "ALTER TABLE dbo.Precio SET (SYSTEM_VERSIONING = ON (HISTORY_RETENTION_PERIOD = 6 MONTHS));");
+
         var path = TempPath();
 
         try
@@ -248,6 +255,12 @@ public sealed class TemporalLiveTests
 
             Assert.True(result.Complete, Explain(result));
             Assert.Contains(result.Notices, n => n.Contains("migration", StringComparison.Ordinal));
+
+            Assert.Equal(
+                "6 MONTH",
+                await ScalarStringAsync(
+                    destination,
+                    "SELECT CONCAT(history_retention_period, ' ', history_retention_period_unit_desc) FROM sys.tables WHERE name = N'Precio';"));
 
             Assert.Contains("period taken off", result.Tables.Single(t => t.Name == "Precio").Publication!, StringComparison.Ordinal);
             Assert.Contains("history of [dbo].[Precio]", result.Tables.Single(t => t.Name == "PrecioHistory").Publication!, StringComparison.Ordinal);
@@ -334,9 +347,17 @@ public sealed class TemporalLiveTests
     /// versioning, and the hidden flags.
     /// </summary>
     /// <remarks>
-    /// The failure is the destination's own: a trigger that refuses deletes, which is a
-    /// thing a real database has and the archive knows nothing about. It fires on the
-    /// <c>DELETE</c>, which is after the period has been dropped.
+    /// The failure is the destination's own: a trigger that refuses deletes by rolling the
+    /// transaction back, which is a thing real databases have and the archive knows nothing
+    /// about. It fires on the <c>DELETE</c>, after the period has been dropped - and since
+    /// it ends the transaction on the server's side, it is also what shows that the
+    /// server's reason survives a rollback that has nothing left to do.
+    /// <para>
+    /// The restore is not allowed to carry on past the failure. Carrying on runs the
+    /// finalize phase, and the finalize phase adds the period and turns versioning on: it
+    /// would heal the very damage this is looking for, and a test that looked after it
+    /// passed with the period dropped outside the transaction. Measured, by mutating it.
+    /// </para>
     /// </remarks>
     [LiveFact]
     public async Task AFailureHalfWayThroughTheMigrationLeavesTheTimelineExactlyAsItWas()
@@ -350,6 +371,7 @@ public sealed class TemporalLiveTests
             """
             CREATE TRIGGER dbo.Precio_NoSeBorra ON dbo.Precio AFTER DELETE AS
             BEGIN
+                ROLLBACK TRANSACTION;
                 THROW 50001, N'Precio no se borra', 1;
             END;
             """);
@@ -364,18 +386,52 @@ public sealed class TemporalLiveTests
 
             // Pedido is left out so the only thing that fails is the one this is about: its
             // archived rows point at Precio rows the refusal keeps out.
-            var result = await ImportAsync(path, destination, continueOnError: true, exclude: ["dbo.Pedido"]);
+            var failed = await Assert.ThrowsAnyAsync<Exception>(() => ImportAsync(path, destination, exclude: ["dbo.Pedido"]));
 
-            var precio = result.Tables.Single(t => t.Name == "Precio");
-            var history = result.Tables.Single(t => t.Name == "PrecioHistory");
+            // The server's reason, not the driver's complaint about a transaction that had
+            // already ended.
+            Assert.Contains("no se borra", failed.Message, StringComparison.Ordinal);
 
-            Assert.True(precio.Outcome == ImportTableOutcome.Failed, $"{precio.Outcome}: {precio.Reason}");
-            Assert.Equal(ImportTableOutcome.Failed, history.Outcome);
-            Assert.Contains("no se borra", precio.Reason!, StringComparison.Ordinal);
+            var after = await StateAsync(destination);
 
-            // The other pair went through, so this was one unit refused and not a restore
-            // abandoned.
-            Assert.Equal(ImportTableOutcome.Published, result.Tables.Single(t => t.Name == "Tarifa").Outcome);
+            Assert.Equal(before.Precio, after.Precio);
+            Assert.Equal(before.PrecioHistory, after.PrecioHistory);
+            Assert.Equal(before.Catalog, after.Catalog);
+        }
+        finally
+        {
+            Clean(path);
+        }
+    }
+
+    /// <summary>
+    /// The refusal SQL Server makes at the very last statement: a history whose periods
+    /// overlap is not adopted (13573), which ends the transaction on the server's side.
+    /// The unit says what the refusal means, and every statement before it - versioning
+    /// off, the period dropped, both tables replaced, the period added - is undone.
+    /// </summary>
+    [LiveFact]
+    public async Task AHistoryTheServerWillNotAdoptIsRolledBackWhole()
+    {
+        var (source, destination) = await _server.CreatePairAsync();
+        await SeedAsync(source);
+        await SeedOwnTimelineAsync(destination);
+        var path = TempPath();
+
+        try
+        {
+            await ExportAsync(source, path);
+            await OverlapAHistoryRowAsync(path);
+
+            var before = await StateAsync(destination);
+
+            // Not carried on past, for the reason the previous test gives: what is compared
+            // below is what the rollback left, not what a later phase repaired.
+            var refused = await Assert.ThrowsAsync<ImportException>(() => ImportAsync(path, destination, exclude: ["dbo.Pedido"]));
+
+            Assert.Contains("overlap", refused.Message, StringComparison.Ordinal);
+            Assert.Contains("rolled back", refused.Message, StringComparison.Ordinal);
+            Assert.IsType<SqlException>(refused.InnerException);
 
             var after = await StateAsync(destination);
 
@@ -458,13 +514,12 @@ public sealed class TemporalLiveTests
 
             var before = await StateAsync(destination);
 
-            var result = await ImportAsync(path, destination, continueOnError: true, exclude: ["dbo.Pedido"]);
+            // Not carried on past: the finalize phase would put a dropped period back and
+            // hide exactly what this is looking at.
+            var refused = await Assert.ThrowsAsync<ImportException>(() => ImportAsync(path, destination, exclude: ["dbo.Pedido"]));
 
-            var precio = result.Tables.Single(t => t.Name == "Precio");
-
-            Assert.True(precio.Outcome == ImportTableOutcome.Failed, $"{precio.Outcome}: {precio.Reason}");
-            Assert.Contains("clock", precio.Reason!, StringComparison.Ordinal);
-            Assert.Contains("rolled back", precio.Reason!, StringComparison.Ordinal);
+            Assert.Contains("clock", refused.Message, StringComparison.Ordinal);
+            Assert.Contains("rolled back", refused.Message, StringComparison.Ordinal);
 
             var after = await StateAsync(destination);
 
@@ -865,6 +920,39 @@ public sealed class TemporalLiveTests
     private static Task StartInTheFutureAsync(string archivePath) =>
         ResealAsync(archivePath, "dbo", "Precio", text =>
             new Regex("\"ValidFrom\":\"[^\"]+\"").Replace(text, "\"ValidFrom\":\"2999-01-01T00:00:00\"", 1));
+
+    /// <summary>
+    /// Stretches one of Precio's history rows back over the one before it, for the same
+    /// key, and seals the archive again: a history SQL Server will not adopt (13573), in an
+    /// archive the exact guard lets through.
+    /// </summary>
+    private static Task OverlapAHistoryRowAsync(string archivePath) =>
+        ResealAsync(archivePath, "hist", "PrecioHistory", text =>
+        {
+            var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries).ToList();
+
+            // The two earliest history rows of Id 1 that are not the empty period two
+            // updates in one transaction leave behind.
+            var spans = lines
+                .Select((line, index) => (Line: line, Index: index))
+                .Where(x => x.Line.StartsWith("{\"Id\":1,", StringComparison.Ordinal))
+                .Select(x => (x.Index, From: Value(x.Line, "ValidFrom"), To: Value(x.Line, "ValidTo")))
+                .Where(x => x.From != x.To)
+                .OrderBy(x => x.From, StringComparer.Ordinal)
+                .Take(2)
+                .ToList();
+
+            Assert.Equal(2, spans.Count);
+
+            // The second now starts where the first does, and so overlaps all of it.
+            lines[spans[1].Index] = lines[spans[1].Index].Replace(
+                $"\"ValidFrom\":\"{spans[1].From}\"", $"\"ValidFrom\":\"{spans[0].From}\"", StringComparison.Ordinal);
+
+            return string.Join('\n', lines) + "\n";
+        });
+
+    private static string Value(string line, string column) =>
+        Regex.Match(line, $"\"{column}\":\"(?<v>[^\"]+)\"").Groups["v"].Value;
 
     /// <summary>Rewrites one entry and leaves the manifest alone - which is what a corrupted file is.</summary>
     private static void Tamper(string archivePath, string entryName, Func<string, string> edit)
