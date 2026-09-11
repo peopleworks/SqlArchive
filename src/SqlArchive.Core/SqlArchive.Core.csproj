@@ -10,6 +10,21 @@
          member buys filler on CreatedAt and teaches contributors to write it. -->
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <Version>0.1.0</Version>
+
+    <!-- Every published version from here on is compared with the one before it at
+         `dotnet pack`, which CI runs on every pull request, and anything removed or
+         changed fails the build. Not theoretical: SqlSchemaDiff.Core 1.8.0 turned a
+         public method into an overload with an optional parameter - which recompiles
+         cleanly and is a different method in IL - and SyncJob.Core 1.0.0, compiled
+         against the version before, threw MissingMethodException in production code.
+         It was this project, moving onto 1.8.0, that found it.
+
+         Below 1.0 the public API may still change between minor versions, and when a
+         release means to, the baseline says so by moving - it is the deliberate
+         decision the check exists to force. After each release, move it to the
+         version just published. -->
+    <EnablePackageValidation>true</EnablePackageValidation>
+    <PackageValidationBaselineVersion>0.1.0</PackageValidationBaselineVersion>
     <Description>Reads and writes the SqlArchive format: a manifest carrying a full schema snapshot and a per-table content hash, phased SQL, and one JSONL file per table. The engine behind exporting a SQL Server database to a readable archive, restoring it as a migration, and verifying the two match.</Description>
     <Authors>Pedro Hernández (PeopleWorks)</Authors>
     <Company>PeopleWorks</Company>
