@@ -28,7 +28,7 @@
          compares and composes; the data side streams, stages, guards and publishes.
          Two phases of work went into making both of them fit to compose, and the
          whole point of that work is that this project stays thin. -->
-    <PackageReference Include="PeopleWorks.SqlSchemaDiff.Core" Version="1.7.0" />
+    <PackageReference Include="PeopleWorks.SqlSchemaDiff.Core" Version="1.8.1" />
     <PackageReference Include="PeopleWorks.SyncJob.Core" Version="1.0.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.2" />
   </ItemGroup>

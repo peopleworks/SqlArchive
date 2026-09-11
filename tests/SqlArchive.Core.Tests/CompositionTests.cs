@@ -30,12 +30,15 @@ public sealed class CompositionTests
     /// <summary>
     /// The versions this design was written against. A bump is fine - it is a line in a
     /// csproj - but it should be a decision someone made, not something that happened,
-    /// because upgrading the schema reader has already broken a consumer once: 1.7.0
+    /// because upgrading the schema reader has already broken a consumer twice. 1.7.0
     /// started rendering temporal and memory-optimized tables faithfully, which is right
-    /// for a diff and was wrong for the staging table SyncJob cloned with it.
+    /// for a diff and was wrong for the staging table SyncJob cloned with it. And 1.8.0
+    /// removed a method SyncJob.Core 1.0.0 was compiled against: moving this project
+    /// onto it, before building anything, is what found it - nine import tests failed
+    /// with MissingMethodException inside SyncJob's staging factory. 1.8.1 put it back.
     /// </summary>
     [Theory]
-    [InlineData("SqlSchemaDiff.Core", "1.7")]
+    [InlineData("SqlSchemaDiff.Core", "1.8")]
     [InlineData("SyncJob.Core", "1.0")]
     public void TheEnginesAreTheVersionsThisWasDesignedAgainst(string assemblyName, string expected)
     {
