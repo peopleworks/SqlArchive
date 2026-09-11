@@ -414,15 +414,19 @@ internal sealed class TablePublisher
     }
 
     /// <summary>
-    /// Rolls back, unless the server already has.
+    /// Rolls back, and never lets the rollback's own failure take the place of the error
+    /// that made it necessary.
     /// </summary>
     /// <remarks>
-    /// Some errors end the transaction on the server's side before the client hears of
-    /// them - measured on SQL Server 2025: a <c>SYSTEM_VERSIONING = ON</c> refused with
-    /// 13573 leaves <c>@@TRANCOUNT</c> at 0, with every statement before it already undone.
-    /// Rolling back again then throws <c>InvalidOperationException</c> from the driver, and
-    /// letting that escape would replace the server's reason with "this transaction has
-    /// completed", which says nothing about why.
+    /// <b>Not the case it was first written for.</b> Some errors end the transaction on the
+    /// server's side before the client hears of them - a <c>SYSTEM_VERSIONING = ON</c>
+    /// refused with 13573 leaves <c>@@TRANCOUNT</c> at 0, and so does a trigger's own
+    /// <c>ROLLBACK</c> - and this was written on the belief that the driver then refuses a
+    /// second rollback. It does not: measured on SQL Server 2025 with SqlClient 6.1, by two
+    /// mutations that swapped this for a plain rollback and went unnoticed, the driver
+    /// accepts it quietly. What is left is a connection that broke half way, where the
+    /// server rolls the transaction back when it notices and a rollback here would only
+    /// throw a second error over the first. That path has no test.
     /// </remarks>
     internal static async Task RollbackQuietlyAsync(SqlTransaction transaction)
     {
@@ -430,13 +434,11 @@ internal sealed class TablePublisher
         {
             await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
         }
-        catch(InvalidOperationException)
+        catch(Exception ex) when(ex is InvalidOperationException or SqlException)
         {
-        }
-        catch(SqlException)
-        {
-            // A connection that broke half way is rolled back by the server when it
-            // notices; the error that broke it is the one worth reporting.
+            // A connection that broke half way - the driver says so with either type - is
+            // rolled back by the server when it notices; the error that broke it is the
+            // one worth reporting.
         }
     }
 

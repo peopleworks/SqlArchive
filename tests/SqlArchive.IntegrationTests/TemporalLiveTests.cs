@@ -349,9 +349,9 @@ public sealed class TemporalLiveTests
     /// <remarks>
     /// The failure is the destination's own: a trigger that refuses deletes by rolling the
     /// transaction back, which is a thing real databases have and the archive knows nothing
-    /// about. It fires on the <c>DELETE</c>, after the period has been dropped - and since
-    /// it ends the transaction on the server's side, it is also what shows that the
-    /// server's reason survives a rollback that has nothing left to do.
+    /// about. It fires on the <c>DELETE</c>, after the period has been dropped, and it ends
+    /// the transaction on the server's side - which is the case where everything this unit
+    /// did has to be undone by the server alone.
     /// <para>
     /// The restore is not allowed to carry on past the failure. Carrying on runs the
     /// finalize phase, and the finalize phase adds the period and turns versioning on: it
@@ -388,8 +388,7 @@ public sealed class TemporalLiveTests
             // archived rows point at Precio rows the refusal keeps out.
             var failed = await Assert.ThrowsAnyAsync<Exception>(() => ImportAsync(path, destination, exclude: ["dbo.Pedido"]));
 
-            // The server's reason, not the driver's complaint about a transaction that had
-            // already ended.
+            // The server's reason is what the operator is told.
             Assert.Contains("no se borra", failed.Message, StringComparison.Ordinal);
 
             var after = await StateAsync(destination);
