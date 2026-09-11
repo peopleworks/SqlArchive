@@ -151,19 +151,33 @@ jobs:
           body: |
             ## SqlArchive ${{ github.ref_name }}
 
-            **This tool is half built.** `inspect` reads an archive - its manifest,
-            its tables, their row counts and hashes, and what it does not contain -
-            without unpacking a byte. `export`, `import` and `verify` are declared,
-            documented, and refuse to run: they name the work package that brings
-            them and exit non-zero rather than reporting work that did not happen.
+            Export a SQL Server database to an archive you can read, restore it
+            somewhere else, and prove the two match - down to the row, not just the
+            row count. A thousand modified rows are still a thousand rows; the
+            per-table hash is what sees them.
 
-            **`sqlarchive-win-x64.zip`** — a single self-contained executable.
+            **All four verbs work.** `export` reads a database into a `.sqlarchive`:
+            the schema in numbered phases, one JSONL file per table, a hash per
+            table. `import` restores it - into an empty database, or over one that
+            already exists, as a migration with a diff rather than a drop, each
+            table published through staging and a switch so a failure half way
+            leaves it as it was. `verify` says whether the archive is intact, whether
+            a restored database matches it, and whether a live one has drifted -
+            and which table, and whether by schema, by count, or by content at the
+            same count. `inspect` reads an archive without unpacking a byte.
+
+            **A system-versioned table comes back with its timeline.** Its history
+            travels as a table of its own, and the restored table answers
+            `FOR SYSTEM_TIME AS OF` exactly as the source did, at every instant.
+
+            **`sqlarchive-win-x64.zip`** - a single self-contained executable.
             No .NET runtime to install, nothing else to copy next to it.
 
             ```powershell
             # Unzip, then:
-            .\sqlarchive.exe inspect Ventas.sqlarchive
-            .\sqlarchive.exe inspect Ventas.sqlarchive --json
+            .\sqlarchive.exe export --source "Server=.;Database=Ventas;Integrated Security=true" --out Ventas.sqlarchive
+            .\sqlarchive.exe import Ventas.sqlarchive --destination "Server=.;Database=VentasCopia;Integrated Security=true"
+            .\sqlarchive.exe verify Ventas.sqlarchive --against "Server=.;Database=VentasCopia;Integrated Security=true"
             ```
 
             Or install it as a .NET tool:
@@ -173,16 +187,28 @@ jobs:
             sqlarchive --version
             ```
 
-            The library behind it is
-            [`PeopleWorks.SqlArchive.Core`](https://www.nuget.org/packages/PeopleWorks.SqlArchive.Core):
-            the format, the manifest, the value encoding and the row hash.
+            `verify` exits **0** when the two sides match, **3** when it ran to the
+            end and they do not, and **1** when it could not make the comparison -
+            so a nightly job can tell drift from a broken server without reading
+            the output.
 
-            **Requires** SQL Server 2016+ for the verbs that talk to one.
-            `inspect` needs no server at all.
+            The library behind it is
+            [`PeopleWorks.SqlArchive.Core`](https://www.nuget.org/packages/PeopleWorks.SqlArchive.Core),
+            composed from the two family engines rather than copying either:
+            [`PeopleWorks.SqlSchemaDiff.Core`](https://www.nuget.org/packages/PeopleWorks.SqlSchemaDiff.Core)
+            for the schema and
+            [`PeopleWorks.SyncJob.Core`](https://www.nuget.org/packages/PeopleWorks.SyncJob.Core)
+            for the data.
+
+            **Requires** SQL Server 2016+. What an archive does not carry - and says
+            so rather than letting you find out - is in the
+            [README](https://github.com/peopleworks/SqlArchive#what-it-does-not-carry-and-says-so-here-rather-than-letting-you-find-out),
+            and every change is in
+            [CHANGELOG.md](https://github.com/peopleworks/SqlArchive/blob/main/CHANGELOG.md).
 
             The archive's shape and its value-encoding table are adopted from
             [dbdumper](https://github.com/JeePeeTee/dbdumper) by JeePee (MIT), with
-            thanks. No code is copied, and SqlArchive reads dbdumper's manifest.
+            thanks. No code is copied, and SqlArchive reads dbdumper's archives.
 
             Companion tools: [SQLDiff](https://github.com/peopleworks/SqlSchemaDiff)
             moves the schema, [SyncJob](https://github.com/peopleworks/syncjob) moves
