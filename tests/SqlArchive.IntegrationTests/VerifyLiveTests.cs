@@ -256,12 +256,20 @@ public sealed class VerifyLiveTests
     }
 
     /// <summary>
-    /// A system-versioned table verifies, which is the whole reason its period columns
-    /// are not archived: SQL Server writes them itself and refuses to be told what they
-    /// are, so an archive that carried them could never pass its own verify.
+    /// A system-versioned table verifies with its period columns in the hash, and its
+    /// history verifies beside it as a table in its own right.
     /// </summary>
+    /// <remarks>
+    /// <b>Until WP 2.6 this test pinned the loss</b>, and was called
+    /// <c>ASystemVersionedTableVerifiesBecauseItsPeriodColumnsAreNotCarried</c>: it asserted
+    /// that the history table was absent from the report, because the extractor never
+    /// returned it and so the export never archived it, and it said that the day that
+    /// changed a test would say so. The period columns are carried now - a restore creates
+    /// the table without its period and adds it after the rows - so a verify compares them;
+    /// and the history is read back by name on both sides, so a verify compares it too.
+    /// </remarks>
     [LiveFact]
-    public async Task ASystemVersionedTableVerifiesBecauseItsPeriodColumnsAreNotCarried()
+    public async Task ASystemVersionedTableVerifiesWithItsPeriodColumnsAndItsHistory()
     {
         var source = await _server.CreateDatabaseAsync();
         var path = TempPath();
@@ -297,13 +305,23 @@ public sealed class VerifyLiveTests
             Assert.Equal(2, employee.DatabaseRows);
             Assert.True(employee.ContentCompared);
 
-            // The history table is not here, and that is not this command's doing:
-            // SqlSchemaDiff 1.7.0's extractor does not return a temporal history table as
-            // an object at all, so the export never archived it and verify has nothing to
-            // compare. Asserted rather than left implicit, so that the day the extractor
-            // starts returning it, this test says so instead of a silent change of
-            // meaning. Reported to the lead.
-            Assert.DoesNotContain(report.Tables, t => t.Name.Contains("History", StringComparison.OrdinalIgnoreCase));
+            // The history is here now, compared row by row like any other table: the one
+            // update left one row in it.
+            var history = report.Tables.Single(t => t.Name == "EmployeeHistory");
+
+            Assert.Equal(TableOutcome.Matches, history.Outcome);
+            Assert.Equal(1, history.DatabaseRows);
+            Assert.True(history.ContentCompared);
+
+            // And both hashes are of every column the archive carries, the period included:
+            // the manifest's own hash for the table is over four columns, not two.
+            using var archive = await ArchiveReader.OpenAsync(path);
+
+            var model = archive.Manifest.Schema!.Objects.Single(o => o.Name == "Employee").Table!;
+
+            Assert.Equal(
+                ["Id", "Name", "From_", "To_"],
+                ArchiveColumns.For(model).Select(c => c.Name).ToArray());
         }
         finally
         {

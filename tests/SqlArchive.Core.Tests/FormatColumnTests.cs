@@ -4,9 +4,11 @@ using SqlSchemaDiff.Models;
 namespace SqlArchive.Core.Tests;
 
 /// <summary>
-/// Which columns the archive carries. Three kinds are left out, and all three because
-/// SQL Server refuses to be told what they are - so an archive that carried them could
-/// never be restored, and could never pass its own verify afterwards.
+/// Which columns the archive carries. Two kinds are left out - computed columns and
+/// rowversions - because SQL Server refuses to be told what they are, so an archive that
+/// carried them could never be restored, and could never pass its own verify afterwards.
+/// The period columns of a system-versioned table used to be a third, and are carried
+/// since WP 2.6.
 /// </summary>
 public sealed class FormatColumnTests
 {
@@ -64,17 +66,37 @@ public sealed class FormatColumnTests
         Assert.False(ArchiveColumns.IsArchived(Column("V", typeName)));
 
     /// <summary>
-    /// Verified against SQL Server 2025: a GENERATED ALWAYS period column is refused even
-    /// with SYSTEM_VERSIONING set to OFF, which is the state a restore loads rows in.
+    /// The two columns of a SYSTEM_TIME period are data. SQL Server refuses them only while
+    /// the period exists - even with SYSTEM_VERSIONING off - and a restore creates the table
+    /// without it, loads them, and adds it afterwards. Without them every restored row
+    /// begins at the restore, and FOR SYSTEM_TIME AS OF anything earlier answers nothing.
     /// </summary>
     [Theory]
-    [InlineData((byte)1)]
-    [InlineData((byte)2)]
-    public void APeriodColumnIsNot(byte generatedAlwaysType)
+    [InlineData(ArchiveColumns.PeriodStart)]
+    [InlineData(ArchiveColumns.PeriodEnd)]
+    public void APeriodColumnIsCarried(byte generatedAlwaysType)
     {
         var column = new ColumnModel { Name = "SysStart", TypeName = "datetime2", GeneratedAlwaysType = generatedAlwaysType };
 
+        Assert.True(ArchiveColumns.IsArchived(column));
+        Assert.True(ArchiveColumns.IsPeriodColumn(column));
+    }
+
+    /// <summary>
+    /// Every other kind of GENERATED ALWAYS column - the transaction and sequence columns a
+    /// ledger table keeps, 7 to 10 - is still the server's to write.
+    /// </summary>
+    [Theory]
+    [InlineData((byte)7)]
+    [InlineData((byte)8)]
+    [InlineData((byte)9)]
+    [InlineData((byte)10)]
+    public void ALedgerColumnIsNot(byte generatedAlwaysType)
+    {
+        var column = new ColumnModel { Name = "Tx", TypeName = "bigint", GeneratedAlwaysType = generatedAlwaysType };
+
         Assert.False(ArchiveColumns.IsArchived(column));
+        Assert.False(ArchiveColumns.IsPeriodColumn(column));
     }
 
     [Fact]
@@ -84,13 +106,39 @@ public sealed class FormatColumnTests
             Column("Id", "int"),
             new ColumnModel { Name = "Total", TypeName = "decimal", IsComputed = true },
             Column("V", "timestamp"),
-            new ColumnModel { Name = "SysStart", TypeName = "datetime2", GeneratedAlwaysType = 1 });
+            new ColumnModel { Name = "SysStart", TypeName = "datetime2", GeneratedAlwaysType = ArchiveColumns.PeriodStart },
+            new ColumnModel { Name = "Tx", TypeName = "bigint", GeneratedAlwaysType = 7 });
 
         Assert.Equal(
-            [("Total", "computed"), ("V", "rowversion"), ("SysStart", "GENERATED ALWAYS")],
+            [("Total", "computed"), ("V", "rowversion"), ("Tx", "GENERATED ALWAYS")],
             ArchiveColumns.Omitted(table).ToArray());
 
-        Assert.Equal(["Id"], ArchiveColumns.For(table).Select(c => c.Name).ToArray());
+        Assert.Equal(["Id", "SysStart"], ArchiveColumns.For(table).Select(c => c.Name).ToArray());
+    }
+
+    /// <summary>
+    /// A history table as SQL Server makes one, measured on 2025: the parent's identity a
+    /// plain column, its computed column a real one holding data, its period plain
+    /// datetime2, its rowversion still a timestamp. Put through the one rule, every column
+    /// is carried except the rowversion - so the columns the parent leaves out are exactly
+    /// the ones its history carries, and nothing had to be derived from the parent to say so.
+    /// </summary>
+    [Fact]
+    public void AHistoryTableCarriesWhatItsParentOmitsExceptTheRowVersion()
+    {
+        var history = Table(
+            Column("Id", "int"),
+            Column("Sku", "nvarchar"),
+            Column("V", "timestamp"),
+            new ColumnModel { Name = "Grito", TypeName = "nvarchar", IsNullable = true },
+            Column("ValidFrom", "datetime2"),
+            Column("ValidTo", "datetime2"));
+
+        Assert.Equal(
+            ["Id", "Sku", "Grito", "ValidFrom", "ValidTo"],
+            ArchiveColumns.For(history).Select(c => c.Name).ToArray());
+
+        Assert.Equal([("V", "rowversion")], ArchiveColumns.Omitted(history).ToArray());
     }
 
     /// <summary>

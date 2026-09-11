@@ -127,13 +127,34 @@ un manifiesto que ocupa bytes por tabla en vez de tanto como los datos. Si un d�
 falta reconciliar fila por fila, se añade un modo opcional que guarde los hashes por fila
 en un fichero aparte, no en el manifiesto.
 
-**Tres familias de columnas no viajan**, y por la misma razón las tres: el servidor las
-escribe él y rechaza que se las escriban. Un `rowversion` recibe uno nuevo al restaurar;
-las columnas de período de una tabla versionada se rechazan **incluso con
-`SYSTEM_VERSIONING = OFF`**, que es el estado en el que un restore carga filas; y una
-columna calculada no tiene valor propio. Llevarlas haría que `verify` no pudiera pasar
+**Dos familias de columnas no viajan**, y por la misma razón las dos: el servidor las
+escribe él y rechaza que se las escriban. Un `rowversion` recibe uno nuevo al restaurar, y
+una columna calculada no tiene valor propio. Llevarlas haría que `verify` no pudiera pasar
 nunca sobre una tabla que las tenga. El manifiesto las declara en `omittedColumns` para
-que su ausencia sea un hecho registrado y no un hueco.
+que su ausencia sea un hecho registrado y no un hueco. (Las columnas `GENERATED ALWAYS` de
+una tabla ledger tampoco viajan; ningún restore de este formato reconstruye un ledger.)
+
+> **Corregido el 10 de septiembre, en WP 2.6.** Aquí decía *tres* familias: las columnas
+> de período de una tabla versionada eran la tercera, porque el servidor las rechaza
+> **incluso con `SYSTEM_VERSIONING = OFF`**. Eso sigue siendo cierto y la conclusión no lo
+> era. Las rechaza **mientras exista el período**, y un restore puede crear la tabla sin
+> él, cargar las filas con su `ValidFrom` y su `ValidTo` y añadir el período después
+> — medido contra SQL Server 2025, y la razón de ser de `ComposeOptions.PeriodAfterData`
+> en SqlSchemaDiff 1.8. Sin ellas cada fila restaurada empezaba en el instante del
+> restore, y `FOR SYSTEM_TIME AS OF` cualquier momento anterior no devolvía nada. **Ahora
+> viajan**, y con ellas la tabla de historia entera: una tabla más del archivo, con su
+> entrada en el manifiesto, sus filas, su conteo y su hash. `FORMAT.md` tiene el detalle,
+> bajo *System-versioned tables*.
+
+**La tabla de historia no se deriva de su padre: se lee.** Lo que SQL Server pone en una
+historia es decisión suya y no es "el padre menos algo": la identidad del padre es allí
+una columna corriente, una columna calculada del padre es allí una columna real con datos,
+el período son dos `datetime2` normales. Así que la misma regla de columnas, aplicada a la
+historia tal como está en el catálogo, lleva justo lo que el padre omite — con una
+excepción, el `rowversion`, que SQL Server conserva en la historia como `timestamp` y que
+nada puede escribir: ni un `INSERT`, ni una columna `binary(8)` que la versión adopte
+(13525), ni un `ALTER COLUMN` a `timestamp` (4927). Las filas de la historia se
+restauran; ese valor, en ellas como en la tabla, es el del destino.
 
 **La tabla de codificación de valores es normativa**, no un detalle de implementación: es
 la definición de la igualdad. Se adopta la de dbdumper — decimales como texto, fechas ISO
@@ -267,15 +288,32 @@ Los cinco primeros son defectos de los motores, no del formato, y ninguno está 
 en ellos: el import los rodea y las pruebas fijan el comportamiento actual, de modo que el
 día que el motor cambie lo dice una prueba y no un cliente.
 
-- **Un archivo no lleva el historial de una tabla versionada.** El extractor salta la
-  tabla de historia con un aviso —correcto para un diff de esquema, porque la crea la
-  cláusula `SYSTEM_VERSIONING`— y con ella se van sus filas. El `090_finalize.sql`
-  recrea la tabla vacía, y `verify` pasa porque los dos lados la omiten. **El manifiesto
-  no lo declara en ningún sitio legible por máquina**, teniendo `dataSkipped` para
-  justamente eso, y el aviso vive sólo en la consola del export. Para el caso de uso
-  *archivar una base que se retira* esto es un agujero, no un detalle. Decisión abierta:
-  declarar la pérdida, o llevar las filas —SQL Server las acepta con
-  `SYSTEM_VERSIONING = OFF`, que es el estado en el que el import carga de todos modos.
+- ~~**Un archivo no lleva el historial de una tabla versionada.**~~ **Cerrado por WP 2.6,
+  con fidelidad completa, que es lo que Pedro eligió.** El extractor salta la tabla de
+  historia —correcto para un diff— y el export la vuelve a leer por nombre con
+  `ExtractTableAsync`, que sí la devuelve, y la archiva como una tabla más. El `040` crea
+  la tabla sin su período y la historia como tabla corriente; se cargan las dos, período
+  incluido; el `090` añade el período y enciende la versión, que adopta la historia con
+  sus filas. Una tabla restaurada contesta `AS OF` como el origen en todo instante,
+  incluido el hueco entre el último cambio y el restore, que antes no devolvía nada.
+  Sobre un destino que ya es temporal —la migración, y `--data-only`— la versión y el
+  período se quitan y se ponen en **una sola transacción** por tabla y su historia, y un
+  fallo a mitad deja el destino exactamente como estaba, período, versión, `HIDDEN` y
+  filas: medido, porque SQL Server deshace él mismo la transacción cuando rechaza la
+  historia (13573). Tres cosas quedan, y ninguna es silenciosa:
+  - **El `rowversion` de una historia no se puede restaurar**, como el de la tabla; se
+    declara en `omittedColumns` y las filas llegan con el valor del destino.
+  - **Un servidor cuyo reloj va por detrás del de origen** rechaza el período (13542) o la
+    historia (13543) hasta que su reloj alcanza el último instante del archivo. El import
+    lo dice con esas palabras; en una migración, deshace la transacción.
+  - **`HISTORY_RETENTION_PERIOD` no está en el snapshot** de SqlSchemaDiff, así que un
+    restore sobre una base vacía la deja infinita. Sobre un destino existente se
+    conserva la que tenía.
+  - **Una tabla temporal *memory-optimized* no se puede migrar sobre sí misma**: SQL
+    Server rechaza apagarle la versión dentro de una transacción (12331, medido en 2025),
+    y sin transacción no hay promesa que cumplir. Se rechaza esa tabla, se dice por qué y
+    el destino queda como estaba. Sobre una base donde no existe, el límite es el de
+    siempre: el filegroup.
 - **`DBCC CHECKIDENT(t, RESEED, n)` significa dos cosas distintas.** En una tabla que ha
   recibido un `INSERT`, el siguiente valor es `n+1`; en una que no, es `n`. El destino de
   un restore es siempre del segundo tipo —lo crea la fase 040 y lo llena un `SWITCH`, que

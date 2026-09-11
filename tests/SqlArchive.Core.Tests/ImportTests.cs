@@ -148,26 +148,57 @@ public sealed class ImportTests
     }
 
     /// <summary>
-    /// The archive leaves out computed columns, rowversions and period columns because
-    /// SQL Server assigns all three. A destination where one of the carried columns has
-    /// become one of those is a destination that is not the table that was archived.
+    /// The archive leaves out computed columns, rowversions and a ledger table's GENERATED
+    /// ALWAYS columns, because SQL Server assigns all three. A destination where one of the
+    /// carried columns has become one of those is a destination that is not the table that
+    /// was archived.
     /// </summary>
+    /// <remarks>
+    /// 7 is <c>AS_TRANSACTION_ID_START</c>. Until WP 2.6 the GENERATED ALWAYS case here was
+    /// a period column, and that is now the one kind a restore does write - see the next test.
+    /// </remarks>
     [Theory]
-    [InlineData(true, false, false, "computed")]
-    [InlineData(false, true, false, "GENERATED ALWAYS")]
-    [InlineData(false, false, true, "rowversion")]
-    public void AColumnTheServerAssignsItselfIsRefusedByName(bool computed, bool generated, bool rowVersion, string expected)
+    [InlineData(true, (byte)0, false, "computed")]
+    [InlineData(false, (byte)7, false, "GENERATED ALWAYS")]
+    [InlineData(false, (byte)0, true, "rowversion")]
+    public void AColumnTheServerAssignsItselfIsRefusedByName(bool computed, byte generatedAlways, bool rowVersion, string expected)
     {
         var error = Assert.Throws<ImportShapeException>(() =>
             DestinationShape.Check(
                 "[dbo].[Customer]",
                 Columns,
-                [Column("Id"), Column("Name", computed: computed, generated: generated, rowVersion: rowVersion),
+                [Column("Id"), Column("Name", computed: computed, generatedAlways: generatedAlways, rowVersion: rowVersion),
                  Column("Balance"), Column("Big")]));
 
         Assert.Contains("[dbo].[Customer].[Name]", error.Message, StringComparison.Ordinal);
         Assert.Contains(expected, error.Message, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// A period column refuses a plain INSERT and is carried all the same, because the
+    /// restore takes the period off, writes the rows' own values and puts it back in one
+    /// transaction. The shape check has to let it through, or no temporal table could be
+    /// restored over one that already exists.
+    /// </summary>
+    [Theory]
+    [InlineData(ArchiveColumns.PeriodStart)]
+    [InlineData(ArchiveColumns.PeriodEnd)]
+    public void APeriodColumnTheArchiveCarriesIsAccepted(byte periodColumn) =>
+        DestinationShape.Check(
+            "[dbo].[Precio]",
+            [new ArchiveColumn("Id", "int"), new ArchiveColumn("ValidFrom", "datetime2", scale: 7)],
+            [Column("Id"), Column("ValidFrom", nullable: false, generatedAlways: periodColumn)]);
+
+    /// <summary>
+    /// And one the archive does not carry is left for the server to fill, whatever its
+    /// nullability - which is what it does while the period exists.
+    /// </summary>
+    [Fact]
+    public void APeriodColumnTheArchiveDoesNotCarryIsTheServers() =>
+        DestinationShape.Check(
+            "[dbo].[Precio]",
+            [new ArchiveColumn("Id", "int")],
+            [Column("Id"), Column("ValidFrom", nullable: false, generatedAlways: ArchiveColumns.PeriodStart)]);
 
     /// <summary>
     /// A column the destination requires and the archive has nothing for would fail on
@@ -528,11 +559,11 @@ public sealed class ImportTests
         string name,
         bool identity = false,
         bool computed = false,
-        bool generated = false,
+        byte generatedAlways = 0,
         bool rowVersion = false,
         bool nullable = true,
         bool hasDefault = false) =>
-        new(name, identity, computed, generated, rowVersion, nullable, hasDefault);
+        new(name, identity, computed, generatedAlways, rowVersion, nullable, hasDefault);
 
     private static DestinationForeignKey Key() =>
         new("FK_Order_Customer", "dbo", "Order", "dbo", "Customer", IsDisabled: false, IsNotTrusted: false);

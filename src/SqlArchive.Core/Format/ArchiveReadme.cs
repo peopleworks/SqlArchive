@@ -76,18 +76,41 @@ public static class ArchiveReadme
             .AppendLine("  \"text\"               char, varchar, nchar, nvarchar, text, ntext, xml. UTF-8, with")
             .AppendLine("                       only the escapes JSON requires.")
             .AppendLine()
-            .AppendLine("Columns a table has and this archive does not carry: computed columns, rowversion,")
-            .AppendLine("and the GENERATED ALWAYS columns of a system-versioned table. SQL Server assigns all")
-            .AppendLine("three itself and refuses to be told what they are, so carrying them would produce a")
-            .AppendLine("restore that fails on its first row. Each table below lists its own.")
+            .AppendLine("Columns a table has and this archive does not carry: computed columns and rowversion.")
+            .AppendLine("SQL Server assigns both itself and refuses to be told what they are, so carrying them")
+            .AppendLine("would produce a restore that fails on its first row. Each table below lists its own.")
+            .AppendLine()
+            .AppendLine("System-versioned tables")
+            .AppendLine("-----------------------")
+            .AppendLine()
+            .AppendLine("The two period columns of a system-versioned table ARE carried, with the values the")
+            .AppendLine("source had, and its history table is a table of this archive like any other, with its")
+            .AppendLine("own rows and hash. SQL Server will not accept a period column's value while the period")
+            .AppendLine("exists, so the schema files put a temporal table back in this order: 040_tables.sql")
+            .AppendLine("creates it WITHOUT its PERIOD FOR SYSTEM_TIME, the period columns as plain datetime2,")
+            .AppendLine("and creates the history table as an ordinary one; the rows of both go in, period")
+            .AppendLine("columns included; and 090_finalize.sql adds the period and turns versioning on, which")
+            .AppendLine("adopts the history table as it stands. The restored table then answers FOR SYSTEM_TIME")
+            .AppendLine("AS OF exactly as the source did. Two things SQL Server checks at that last step:")
+            .AppendLine("every current row's period ends at the largest value its datetime2 scale can hold, and")
+            .AppendLine("no period starts - and no history row ends - after the server's own clock.")
             .AppendLine()
             .AppendLine("Tables")
             .AppendLine("------")
             .AppendLine();
 
+        // The snapshot is what records which table is whose history; the entries do not
+        // repeat it. A reader without the tool gets it spelled out here instead.
+        var parents = manifest.Schema is { } schema
+            ? HistoryLink.Parents(schema)
+            : new Dictionary<string, SqlSchemaDiff.Models.TableModel>();
+
         foreach(var table in manifest.Tables.OrderBy(t => t.Schema, StringComparer.Ordinal).ThenBy(t => t.Name, StringComparer.Ordinal))
         {
             text.AppendLine(Invariant($"  {table.Identifier}"));
+
+            if(parents.TryGetValue($"{table.Schema}.{table.Name}", out var parent))
+                text.AppendLine(Invariant($"      the history table of [{parent.Schema}].[{parent.Name}]"));
             text.AppendLine(table.DataSkipped
                 ? "      schema only - the rows were deliberately not exported"
                 : Invariant($"      {table.RowCount} rows, hash {table.RowHash}"));

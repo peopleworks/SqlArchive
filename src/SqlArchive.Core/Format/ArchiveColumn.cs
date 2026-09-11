@@ -99,14 +99,38 @@ public sealed class ArchiveColumn
 /// <summary>
 /// Which of a table's columns carry data into the archive, and in which order.
 /// <para>
-/// Three kinds of column are left out, and all three for the same reason: SQL Server
-/// will not accept them back. Writing them would produce an archive whose restore fails
-/// on the first row, or - worse - one whose <c>verify</c> can never pass because the
-/// destination necessarily holds different values.
+/// Two kinds of column are left out, and both for the same reason: SQL Server will not
+/// accept them back. A computed column has no value of its own, and a <c>rowversion</c>
+/// is stamped by the server from a counter no <c>INSERT</c> can write to. Writing either
+/// would produce an archive whose restore fails on the first row, or - worse - one whose
+/// <c>verify</c> can never pass because the destination necessarily holds different
+/// values.
+/// </para>
+/// <para>
+/// The two columns of a <c>SYSTEM_TIME</c> period are <b>not</b> in that list, although
+/// they used to be. SQL Server refuses to be told them only while the period exists, and
+/// a restore can create the table without it, load the rows with their own
+/// <c>ValidFrom</c> and <c>ValidTo</c>, and add the period afterwards - measured against
+/// SQL Server 2025, and the reason <c>ComposeOptions.PeriodAfterData</c> exists. Without
+/// them every restored row starts at the instant of the restore, and <c>FOR SYSTEM_TIME
+/// AS OF</c> any moment before it answers nothing.
+/// </para>
+/// <para>
+/// A history table goes through the same rule as any other table, and that is enough:
+/// SQL Server keeps the parent's identity as a plain column there, and its computed
+/// columns as real ones holding data, so the columns the parent leaves out are exactly
+/// the ones its history carries. The rule is read off the history table's own catalog
+/// entry and never derived from the parent's.
 /// </para>
 /// </summary>
 public static class ArchiveColumns
 {
+    /// <summary><c>sys.columns.generated_always_type</c> of a period's <c>ROW START</c> column.</summary>
+    public const byte PeriodStart = 1;
+
+    /// <summary><c>sys.columns.generated_always_type</c> of a period's <c>ROW END</c> column.</summary>
+    public const byte PeriodEnd = 2;
+
     /// <summary>
     /// The archived columns of a table, in <c>column_id</c> order, with alias types
     /// resolved to the system type underneath them.
@@ -189,14 +213,27 @@ public static class ArchiveColumns
         // A rowversion is assigned by the server from a counter that belongs to one
         // database. It cannot be inserted - "Cannot insert an explicit value into a
         // timestamp column" - and the restored row necessarily gets a different one, so
-        // a hash that included it could never match after a restore.
+        // a hash that included it could never match after a restore. That holds in a
+        // history table too, where SQL Server keeps the parent's rowversion as a
+        // timestamp column of its own: declaring it binary(8) instead so the old values
+        // could be written is refused when versioning adopts the table (13525), and a
+        // column cannot be altered to timestamp afterwards (4927). Measured on 2025.
         if(IsRowVersion(column.TypeName))
             return false;
 
-        // ROW START and ROW END of a SYSTEM_TIME period. Verified against SQL Server
-        // 2025: these are refused even with SYSTEM_VERSIONING set to OFF, which is the
-        // state a restore loads rows in. GeneratedAlwaysType is 1 and 2 for the two.
-        return column.GeneratedAlwaysType == 0;
+        // ROW START and ROW END of a SYSTEM_TIME period are data. They are refused by an
+        // INSERT only while the period exists - even with SYSTEM_VERSIONING off - and a
+        // restore creates the table without the period, loads them, and adds it after.
+        // Any other kind of GENERATED ALWAYS column - the transaction and sequence
+        // columns of a ledger table - is still the server's to write.
+        return column.GeneratedAlwaysType == 0 || IsPeriodColumn(column);
+    }
+
+    /// <summary>True for the <c>ROW START</c> or <c>ROW END</c> column of a <c>SYSTEM_TIME</c> period.</summary>
+    public static bool IsPeriodColumn(ColumnModel column)
+    {
+        ArgumentNullException.ThrowIfNull(column);
+        return column.GeneratedAlwaysType is PeriodStart or PeriodEnd;
     }
 
     /// <summary>
@@ -216,7 +253,7 @@ public static class ArchiveColumns
                 omitted.Add((column.Name, "computed"));
             else if(IsRowVersion(column.TypeName))
                 omitted.Add((column.Name, "rowversion"));
-            else if(column.GeneratedAlwaysType != 0)
+            else if(!IsArchived(column))
                 omitted.Add((column.Name, "GENERATED ALWAYS"));
         }
 

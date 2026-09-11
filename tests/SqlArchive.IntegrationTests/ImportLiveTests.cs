@@ -564,23 +564,22 @@ public sealed class ImportLiveTests
     // ------------------------------------------------------------------ temporal
 
     /// <summary>
-    /// A system-versioned table end to end: rows can only be loaded with versioning off,
-    /// the archive leaves out the period columns for exactly that reason, and the ordering
-    /// the phases impose is what makes the two fit together - <c>040</c> creates the table
-    /// with its period and no versioning, the rows go in, and <c>090</c> turns versioning
-    /// back on.
+    /// A system-versioned table end to end, history and all: <c>040</c> creates the table
+    /// without its period and the history as an ordinary table, the rows of both go in with
+    /// their own periods, and <c>090</c> adds the period and turns versioning on, adopting
+    /// the history as it stands.
     /// </summary>
     /// <remarks>
-    /// <b>And it records what is lost.</b> The history table is not in the archive at all:
-    /// <c>SqlServerSchemaExtractor</c> skips it, with a notice, because SQL Server creates
-    /// it from the <c>SYSTEM_VERSIONING</c> clause and a schema diff has no business
-    /// scripting it. That is right for a diff and it costs an archive the whole history -
-    /// the restored table comes back with its current rows and an empty history. The
-    /// assertions below say so out loud rather than leaving it to be discovered, so that
-    /// the day the extractor changes its mind this test is what tells us.
+    /// <b>Until WP 2.6 this test pinned the loss</b>, and was called
+    /// <c>ASystemVersionedTableIsRestoredWithItsCurrentRowsAndWithoutItsHistory</c>: the
+    /// history table was not in the archive at all, the restored table came back with an
+    /// empty one, and the assertions said so out loud so that the day it changed a test
+    /// would say that too. This is that day. The history is a table of the archive now,
+    /// and the two counts that used to be 2 and 0 are 2 and 2. What <c>AS OF</c> answers
+    /// across the whole timeline is asserted in <c>TemporalLiveTests</c>.
     /// </remarks>
     [LiveFact]
-    public async Task ASystemVersionedTableIsRestoredWithItsCurrentRowsAndWithoutItsHistory()
+    public async Task ASystemVersionedTableIsRestoredWithItsHistory()
     {
         var (source, destination) = await _server.CreatePairAsync();
 
@@ -605,31 +604,28 @@ public sealed class ImportLiveTests
         {
             var exported = await new DatabaseExporter(new ExportOptions { ConnectionString = source }).ExportAsync(path);
 
-            // The export says the history table is not coming, which is the only reason
-            // its absence is a limitation rather than a silent loss.
-            Assert.Contains(exported.Notices, n => n.Contains("PrecioHistory", StringComparison.Ordinal));
+            // The export says what it did with the history table - archived it - where it
+            // used to say it was not coming.
+            Assert.Contains(exported.Notices, n => n.Contains("[dbo].[PrecioHistory] is the history of [dbo].[Precio]", StringComparison.Ordinal));
 
             using(var archive = await ArchiveReader.OpenAsync(path))
             {
-                Assert.Equal(["[dbo].[Precio]"], archive.Manifest.Tables.Select(t => t.Identifier).ToArray());
-
-                // The period columns are not carried, and the manifest says which and why
-                // rather than leaving a reader to count columns and wonder.
                 Assert.Equal(
-                    new Dictionary<string, string> { ["ValidFrom"] = "GENERATED ALWAYS", ["ValidTo"] = "GENERATED ALWAYS" },
-                    archive.Manifest.Table("dbo", "Precio")!.OmittedColumns);
+                    ["[dbo].[Precio]", "[dbo].[PrecioHistory]"],
+                    archive.Manifest.Tables.Select(t => t.Identifier).ToArray());
+
+                // The period columns are carried now, so the table leaves nothing out.
+                Assert.Empty(archive.Manifest.Table("dbo", "Precio")!.OmittedColumns);
+                Assert.Equal(2, archive.Manifest.Table("dbo", "PrecioHistory")!.RowCount);
             }
 
             var result = await ImportAsync(path, destination);
 
             Assert.True(result.Complete, Explain(result));
 
-            // No switch can reach a table with a period - checked against SQL Server 2025,
-            // error 13577 - so this one is published by an insert, and the summary says so.
-            Assert.Contains(
-                "SYSTEM_TIME period",
-                result.Tables.Single(t => t.Name == "Precio").Publication!,
-                StringComparison.Ordinal);
+            // The table has no period while its rows load - 040 created it without one -
+            // so the switch takes it, which it could not while the period was inline.
+            Assert.Equal("swap", result.Tables.Single(t => t.Name == "Precio").Publication);
 
             await AssertRestoredAsync(path, destination);
 
@@ -638,8 +634,8 @@ public sealed class ImportLiveTests
                 11.0m,
                 Convert.ToDecimal(await SqlServerFixture.ScalarAsync(destination, "SELECT Valor FROM dbo.Precio WHERE Id = 1;")));
 
-            // Versioning is back on, pointed at a history table SQL Server created from
-            // the finalize phase's clause.
+            // Versioning is back on, pointed at the history table 040 created and the data
+            // phase filled - adopted, not created afresh by the finalize phase's clause.
             Assert.Equal(
                 2,
                 Convert.ToInt32(await SqlServerFixture.ScalarAsync(
@@ -650,10 +646,16 @@ public sealed class ImportLiveTests
                 await ScalarStringAsync(
                     destination, "SELECT OBJECT_NAME(history_table_id) FROM sys.tables WHERE name = N'Precio';"));
 
-            // The known limitation, stated as an assertion: two history rows on the
-            // source, none on the restored copy.
+            // What used to be the known limitation, stated the other way round: two history
+            // rows on the source, and the same two on the restored copy.
             Assert.Equal(2, await SqlServerFixture.CountAsync(source, "dbo.PrecioHistory"));
-            Assert.Equal(0, await SqlServerFixture.CountAsync(destination, "dbo.PrecioHistory"));
+            Assert.Equal(2, await SqlServerFixture.CountAsync(destination, "dbo.PrecioHistory"));
+
+            // And the current rows kept the ValidFrom they had, rather than taking the
+            // restore's instant - which is what made AS OF answer nothing before it.
+            Assert.Equal(
+                await ScalarStringAsync(source, "SELECT CONVERT(nvarchar(40), MAX(ValidFrom), 126) FROM dbo.Precio;"),
+                await ScalarStringAsync(destination, "SELECT CONVERT(nvarchar(40), MAX(ValidFrom), 126) FROM dbo.Precio;"));
         }
         finally
         {

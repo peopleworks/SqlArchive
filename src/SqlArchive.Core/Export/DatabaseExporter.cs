@@ -79,10 +79,11 @@ public sealed class DatabaseExporter
 
             Report("schema", null, 0, 0, 0, stopwatch);
 
-            var extractor = new SqlServerSchemaExtractor();
-            var extracted = await extractor.ExtractAsync(session.ReadConnectionString, cancellationToken).ConfigureAwait(false);
-            notices.AddRange(extractor.Notices);
+            var extracted = await ReadSchemaAsync(session, notices, cancellationToken).ConfigureAwait(false);
 
+            // After the history tables are in and not before, so that the filters see
+            // them - and so that SnapshotSelection's rule about keeping a versioned table
+            // and its history together has a history table to keep.
             var snapshot = SnapshotSelection.Restrict(extracted, Keep, source.Database, notices);
             var tables = SnapshotSelection.Tables(snapshot)
                 .OrderBy(t => t.Schema, StringComparer.Ordinal)
@@ -152,6 +153,63 @@ public sealed class DatabaseExporter
     }
 
     /// <summary>
+    /// The whole schema, history tables included, read through the session's own
+    /// connection - and inside its transaction, under snapshot isolation.
+    /// </summary>
+    /// <remarks>
+    /// <b>What reading it in the session buys, exactly.</b> Under a database snapshot the
+    /// catalog is the snapshot's, frozen with everything else. Under snapshot isolation it
+    /// is <i>not</i> versioned - measured by SqlSchemaDiff 1.8 on SQL Server 2025: a
+    /// concurrent <c>ALTER TABLE</c> still commits and this read sees it. What protects the
+    /// archive there is that the next read of that table's rows in the same transaction
+    /// fails with error 3961 rather than mixing an old snapshot with a new shape, so the
+    /// export stops instead of writing one. That is less than "the schema shares the
+    /// rows' instant", and nothing here claims more.
+    /// </remarks>
+    private static async Task<DatabaseSnapshot> ReadSchemaAsync(
+        ConsistencySession session,
+        List<string> notices,
+        CancellationToken cancellationToken)
+    {
+        var extractor = new SqlServerSchemaExtractor();
+
+        await using var scope = await session.AcquireAsync(cancellationToken).ConfigureAwait(false);
+
+        var extracted = await extractor
+            .ExtractAsync(scope.Connection, scope.Transaction, cancellationToken).ConfigureAwait(false);
+
+        // Taken now: every per-table read below clears the extractor's notices first.
+        var extractNotices = extractor.Notices.ToList();
+
+        var histories = await HistoryTables
+            .AddAsync(extractor, scope.Connection, scope.Transaction, extracted, cancellationToken)
+            .ConfigureAwait(false);
+
+        if(histories.Missing.Count > 0)
+        {
+            throw new ExportException(
+                $"{string.Join(", ", histories.Missing)} " +
+                (histories.Missing.Count == 1 ? "is named as a history table" : "are named as history tables") +
+                " by a system-versioned table and could not be read back from the catalog - most likely dropped " +
+                "while the export was reading the schema. The archive is not written: an archive of a versioned " +
+                "table without its history would restore a timeline that stops at the restore.");
+        }
+
+        notices.AddRange(HistoryTables.WithoutSkipsOf(extractNotices, histories));
+        notices.AddRange(histories.Notices);
+
+        foreach(var history in histories.Read)
+        {
+            notices.Add(
+                $"[{history.Schema}].[{history.Name}] is the history of [{history.ParentSchema}].[{history.ParentName}] " +
+                "and is archived as a table of its own, rows and all, so a restore hands versioning a history that " +
+                "answers FOR SYSTEM_TIME the way the source did.");
+        }
+
+        return histories.Snapshot;
+    }
+
+    /// <summary>
     /// Turns the schema into a list of units: one per table read in a single pass, and
     /// one per range of a table that is split.
     /// </summary>
@@ -197,9 +255,9 @@ public sealed class DatabaseExporter
             {
                 throw new ExportException(
                     $"{identifier} has no column the archive can carry - every one of them is computed, a " +
-                    "rowversion, or a GENERATED ALWAYS period column, and SQL Server assigns all three itself. " +
-                    "There is nothing to write and nothing a restore could put back. Exclude its data with a " +
-                    "--no-data pattern, or leave the table out.");
+                    "rowversion, or a GENERATED ALWAYS column that is not a period's, and SQL Server assigns all " +
+                    "of those itself. There is nothing to write and nothing a restore could put back. Exclude its " +
+                    "data with a --no-data pattern, or leave the table out.");
             }
 
             var key = RangePlanner.ChooseColumn(table, archived);
@@ -533,8 +591,17 @@ public sealed class DatabaseExporter
             // and foreign keys that would otherwise be maintained once per row.
             // RestartSequences goes with it so a restored database hands out the next
             // number rather than starting again at one.
+            //
+            // PeriodAfterData is the other half of carrying the period columns. With it,
+            // 040 creates a temporal table with its two period columns as plain datetime2,
+            // the rows load with their own ValidFrom and ValidTo, and 090 adds the period
+            // before the SYSTEM_VERSIONING = ON already there - which then adopts the
+            // history table 040 created and the data phase filled. Without it, SQL Server
+            // refuses the rows' own values (13536) and stamps each with the restore's
+            // instant, and FOR SYSTEM_TIME AS OF anything before that returns nothing.
             var phases = ScriptComposer.ComposePhases(
-                snapshot, new ComposeOptions { ConstraintsAfterData = true, RestartSequences = true });
+                snapshot,
+                new ComposeOptions { ConstraintsAfterData = true, RestartSequences = true, PeriodAfterData = true });
 
             foreach(var phase in phases)
             {
