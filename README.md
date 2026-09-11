@@ -11,14 +11,8 @@
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![PeopleWorks](https://img.shields.io/badge/by-PeopleWorks-636f61?style=flat-square)](https://mvp.microsoft.com/en-US/mvp/profile/24060a02-dbc6-44ec-bca5-c213ff9835c5)
 
-<!-- After the first release, add the two badges the sibling repositories carry. They
-     are left out until then on purpose: a NuGet badge for a package nobody has
-     published renders as "not found", which is not a good first impression and is not
-     something a reader should have to interpret.
-
 [![Latest release](https://img.shields.io/github/v/release/peopleworks/SqlArchive?label=release&logo=github)](https://github.com/peopleworks/SqlArchive/releases/latest)
 [![NuGet](https://img.shields.io/nuget/v/PeopleWorks.SqlArchive.Cli?logo=nuget)](https://www.nuget.org/packages/PeopleWorks.SqlArchive.Cli)
--->
 
 **[📖 Pocket guide — the format and the commands on one page](https://peopleworks.github.io/SqlArchive/)**
 
