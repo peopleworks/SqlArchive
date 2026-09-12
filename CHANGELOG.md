@@ -6,6 +6,22 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 `PeopleWorks.SqlArchive.Core` may still change between minor versions; the archive format is
 versioned separately, by `formatVersion` in every manifest.
 
+## [Unreleased]
+
+### Fixed
+
+- **`export` printed the whole connection string when it could not reach the source —
+  password included.** The message named the run by `--source` itself, so a failed export in a
+  CI job wrote the password into the job's log. It now names the database and the server
+  (`Could not read Ventas on SQL1: …`), as `import` already did; `import` and `verify` never
+  printed the string. If a failed 0.1.0 export ran somewhere its output was kept, treat that
+  password as exposed.
+- `import`'s summary said `Mode  migration` on every full restore, including into an empty
+  database, directly above the notice saying the archive's own phases had run instead. It now
+  says `schema and rows` and leaves the route to that notice.
+- An export refusing a spool directory it did not create told the operator to point
+  `--work-dir` somewhere else. `--work-dir` is `import`'s option; `export`'s is `--spool`.
+
 ## [0.1.0] - 2026-09-11
 
 The first release. Four verbs, one archive format, and nothing of its own underneath: the schema
@@ -76,4 +92,5 @@ a memory-optimized table cannot be restored into a fresh database; `--table` on 
 rows, not schema; a restored identity continues from the highest current id rather than the
 source's counter; and the verdict names the table that changed, never the row.
 
+[Unreleased]: https://github.com/peopleworks/SqlArchive/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/peopleworks/SqlArchive/releases/tag/v0.1.0
