@@ -146,6 +146,10 @@ filled.
 Restored. 4 tables published, 0 tables not - each with its reason above.
 ```
 
+The `Mode` line says *migration* on this route too — a wording slip in 0.1.0, fixed for the
+next release, where it reads *schema and rows*. The notice under the table names the route
+that actually ran.
+
 **3. Prove the copy is the archive.** Exit code `0`.
 
 ```bash
