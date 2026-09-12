@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SqlArchive Pocket Guide</title>
-<meta name="description" content="Pocket guide for PeopleWorks SqlArchive - a SQL Server database as a readable archive, restored as a migration, and a per-table hash that proves two databases match. Half built: inspect works today.">
+<meta name="description" content="Pocket guide for PeopleWorks SqlArchive 0.1.0 - export a SQL Server database to a readable archive, inspect it, restore it as a migration, and verify with a per-table hash that two databases match.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230B1220'/><g fill='none' stroke='%2322D3EE' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><rect x='7' y='7' width='18' height='18' rx='3'/><path d='M7 13h18M13 10h6M13 19h6'/></g></svg>">
 <style>
 :root{
@@ -294,6 +294,10 @@ footer b{color:var(--tx)}
   <nav class="jump"><div class="wrap"><ul>
     <li><a href="#state"><span class="es">Estado</span><span class="en">Status</span></a></li>
     <li><a href="#install"><span class="es">Instalación</span><span class="en">Install</span></a></li>
+    <li><a href="#sequence"><span class="es">Secuencia</span><span class="en">Sequence</span></a></li>
+    <li><a href="#export"><code>export</code></a></li>
+    <li><a href="#import"><code>import</code></a></li>
+    <li><a href="#verify"><code>verify</code></a></li>
     <li><a href="#inspect"><code>inspect</code></a></li>
     <li><a href="#archive"><span class="es">El archivo</span><span class="en">The archive</span></a></li>
     <li><a href="#equality"><span class="es">La igualdad</span><span class="en">Equality</span></a></li>
@@ -324,14 +328,14 @@ footer b{color:var(--tx)}
   <div class="note">
     <svg viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm9 3a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Z"/></svg>
     <div>
-      <span class="es"><b>Esta herramienta está a medio construir.</b> Hoy funciona
-        <code>inspect</code> y nada más. <code>export</code>, <code>import</code> y
-        <code>verify</code> están declarados, documentados, y se niegan a correr diciendo qué
-        paquete de trabajo los trae. Ver <a href="#state">Estado</a>.</span>
-      <span class="en"><b>This tool is half built.</b> Today <code>inspect</code> works and
-        nothing else. <code>export</code>, <code>import</code> and <code>verify</code> are
-        declared, documented, and refuse to run, naming the work package that brings them. See
-        <a href="#state">Status</a>.</span>
+      <span class="es"><b>SqlArchive 0.1.0 está publicado.</b> Los cuatro verbos funcionan:
+        <code>export</code>, <code>import</code>, <code>verify</code> e <code>inspect</code>. Está
+        en nuget.org como <code>PeopleWorks.SqlArchive.Cli</code> y, como un solo ejecutable, en el
+        release de GitHub. Ver <a href="#state">Estado</a>.</span>
+      <span class="en"><b>SqlArchive 0.1.0 is published.</b> All four verbs work:
+        <code>export</code>, <code>import</code>, <code>verify</code> and <code>inspect</code>. It is
+        on nuget.org as <code>PeopleWorks.SqlArchive.Cli</code> and, as a single executable, in the
+        GitHub release. See <a href="#state">Status</a>.</span>
     </div>
   </div>
 </div></div>
@@ -341,70 +345,71 @@ footer b{color:var(--tx)}
 <!-- 1 STATE -->
 <section id="state">
   <div class="head"><span class="n">01</span><h2><span class="es">Estado</span><span class="en">Status</span></h2></div>
-  <p class="sub es">Qué hace cada verbo hoy, sin adornos. Un comando que acepta argumentos y devuelve 0 sin hacer nada es peor que uno que todavía no está.</p>
-  <p class="sub en">What each verb does today, unvarnished. A command that takes arguments and returns 0 without doing anything is worse than one that is not there yet.</p>
+  <p class="sub es">Qué hace cada verbo en 0.1.0, sin adornos. Los cuatro funcionan; lo que todavía falta está en <a href="#coming">Lo que viene</a>, anotado como hueco y no como promesa.</p>
+  <p class="sub en">What each verb does in 0.1.0, unvarnished. All four work; what is still missing is in <a href="#coming">What is coming</a>, written down as a gap rather than a promise.</p>
 
   <div class="tbl"><table>
     <thead><tr>
       <th><span class="es">Verbo</span><span class="en">Verb</span></th>
-      <th><span class="es">Hoy</span><span class="en">Today</span></th>
+      <th><span class="es">Qué hace</span><span class="en">What it does</span></th>
       <th><span class="es">Salida</span><span class="en">Exit</span></th>
     </tr></thead>
     <tbody>
       <tr>
-        <td><code>inspect</code></td>
-        <td><span class="es"><b>Funciona.</b> Lee el manifiesto y la lista de entradas sin descomprimir un byte, tanto de un archivo nuestro como de uno de dbdumper.</span>
-            <span class="en"><b>Works.</b> Reads the manifest and the entry list without unpacking a byte, on one of ours and on one of dbdumper's.</span></td>
-        <td><code>0</code></td>
+        <td><a href="#export"><code>export</code></a></td>
+        <td><span class="es">Lee una base a un archivo: el esquema, las filas y, por tabla, un conteo y un hash.</span>
+            <span class="en">Reads a database into an archive: the schema, the rows and, per table, a count and a hash.</span></td>
+        <td><code>0</code> · <code>1</code></td>
       </tr>
       <tr>
-        <td><code>export</code></td>
-        <td><span class="es"><b>No existe.</b> Se niega y dice que lo trae el paquete de trabajo 2.2, que se está escribiendo ahora.</span>
-            <span class="en"><b>Not built.</b> Refuses, and says work package 2.2 brings it — being written now.</span></td>
-        <td><code>2</code></td>
+        <td><a href="#import"><code>import</code></a></td>
+        <td><span class="es">Restaura un archivo en una base que ya existe. Si está vacía, recibe el esquema del archivo; si ya tiene tablas, recibe una migración que no borra nada.</span>
+            <span class="en">Restores an archive into a database that already exists. If it is empty, it gets the archive's schema; if it already holds tables, it gets a migration that drops nothing.</span></td>
+        <td><code>0</code> · <code>1</code></td>
       </tr>
       <tr>
-        <td><code>import</code></td>
-        <td><span class="es"><b>No existe.</b> Paquete de trabajo 2.3, que necesita el 2.2 antes: no hay nada que importar hasta que algo pueda exportar.</span>
-            <span class="en"><b>Not built.</b> Work package 2.3, which needs 2.2 first: there is nothing to import until something can export.</span></td>
-        <td><code>2</code></td>
+        <td><a href="#verify"><code>verify</code></a></td>
+        <td><span class="es">Sin <code>--against</code>, comprueba que el archivo sigue íntegro y no toca ningún servidor. Con él, compara el archivo con una base viva, tabla por tabla.</span>
+            <span class="en">Without <code>--against</code>, checks that the archive is still intact and touches no server. With it, compares the archive with a live database, table by table.</span></td>
+        <td style="white-space:nowrap"><code>0</code> · <code>1</code> · <code>3</code></td>
       </tr>
       <tr>
-        <td><code>verify</code></td>
-        <td><span class="es"><b>No existe.</b> Paquete de trabajo 2.4.</span>
-            <span class="en"><b>Not built.</b> Work package 2.4.</span></td>
-        <td><code>2</code></td>
+        <td><a href="#inspect"><code>inspect</code></a></td>
+        <td><span class="es">Lee el manifiesto y la lista de entradas sin descomprimir un byte, tanto de un archivo nuestro como de uno de dbdumper.</span>
+            <span class="en">Reads the manifest and the entry list without unpacking a byte, on one of ours and on one of dbdumper's.</span></td>
+        <td><code>0</code> · <code>1</code></td>
       </tr>
     </tbody>
   </table></div>
 
   <div class="grid" style="margin-top:14px">
     <div class="card">
-      <h3><span class="es">Lo que sí está terminado</span><span class="en">What is finished</span></h3>
-      <p class="es"><b>El formato</b>, que es de lo que cuelga todo lo demás: el manifiesto con un
-        snapshot completo del esquema, las fases <code>.sql</code>, el JSONL, la tabla de
-        codificación de valores que <i>define</i> la igualdad, el hash por tabla, y el lector del
-        manifiesto de dbdumper. Vive en <code>PeopleWorks.SqlArchive.Core</code> y su
-        especificación normativa es <code>FORMAT.md</code>.</p>
-      <p class="en"><b>The format</b>, which everything else hangs off: the manifest with a full
-        schema snapshot, the <code>.sql</code> phases, the JSONL, the value-encoding table that
-        <i>defines</i> equality, the per-table hash, and the reader for dbdumper's manifest. It
-        lives in <code>PeopleWorks.SqlArchive.Core</code>, and <code>FORMAT.md</code> is its
-        normative specification.</p>
+      <h3><span class="es">El formato, primero</span><span class="en">The format first</span></h3>
+      <p class="es">Todo cuelga del formato: el manifiesto con un snapshot completo del esquema, las
+        fases <code>.sql</code>, el JSONL, la tabla de codificación de valores que <i>define</i> la
+        igualdad, el hash por tabla, y el lector del manifiesto de dbdumper. Vive en
+        <code>PeopleWorks.SqlArchive.Core</code>, publicado en nuget.org junto a la herramienta, y
+        su especificación normativa es <code>FORMAT.md</code>.</p>
+      <p class="en">Everything hangs off the format: the manifest with a full schema snapshot, the
+        <code>.sql</code> phases, the JSONL, the value-encoding table that <i>defines</i> equality,
+        the per-table hash, and the reader for dbdumper's manifest. It lives in
+        <code>PeopleWorks.SqlArchive.Core</code>, published on nuget.org next to the tool, and
+        <code>FORMAT.md</code> is its normative specification.</p>
     </div>
 
     <div class="card">
       <h3><span class="es">Códigos de salida</span><span class="en">Exit codes</span></h3>
       <dl class="kv">
-        <dt>0</dt><dd><span class="es">El comando hizo lo que dice que hace.</span><span class="en">The command did what it says it does.</span></dd>
-        <dt>1</dt><dd><span class="es">Lo intentó y falló: una ruta mala, un valor rechazado, un archivo ilegible.</span><span class="en">It tried and failed: a bad path, a refused value, an unreadable archive.</span></dd>
-        <dt>2</dt><dd><span class="es">El verbo está en la ayuda y todavía no está construido.</span><span class="en">The verb is in the help and is not built yet.</span></dd>
+        <dt>0</dt><dd><span class="es">El comando hizo lo que dice que hace. En <code>verify</code>, además, no hubo diferencias.</span><span class="en">The command did what it says it does. For <code>verify</code>, it also means no differences were found.</span></dd>
+        <dt>1</dt><dd><span class="es">Lo intentó y no pudo: una ruta mala, un valor rechazado, un archivo ilegible, una base que no se puede abrir, una tabla que no se publicó.</span><span class="en">It tried and could not: a bad path, a refused value, an unreadable archive, a database that cannot be opened, a table that was not published.</span></dd>
+        <dt>2</dt><dd><span class="es"><b>Retirado.</b> Quería decir «el verbo está en la ayuda y todavía no está construido». Ya nada lo devuelve, y a propósito no se reusa: un script escrito contra el significado viejo seguiría corriendo y entendería otra cosa.</span><span class="en"><b>Retired.</b> It meant "the verb is in the help and is not built yet". Nothing returns it now, and it is deliberately not reused: a script written against the old meaning would keep running and mean the wrong thing.</span></dd>
+        <dt>3</dt><dd><span class="es">Sólo <code>verify</code>: la comparación corrió hasta el final y los dos lados no coinciden.</span><span class="en"><code>verify</code> only: the comparison ran to the end and the two sides do not match.</span></dd>
       </dl>
       <div class="warn g" style="margin-top:14px">
         <svg viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm11.78-1.72a.75.75 0 0 0-1.06-1.06L6.75 9.19 5.28 7.72a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0Z"/></svg>
         <div>
-          <span class="es"><code>2</code> es distinto de <code>1</code> a propósito: «esto todavía no se puede» y «esta corrida salió mal» son respuestas diferentes, y un script no debería tener que leer el mensaje para distinguirlas.</span>
-          <span class="en"><code>2</code> is separate from <code>1</code> on purpose: "this cannot be done yet" and "this run went wrong" are different answers, and a script should not have to read the message to tell them apart.</span>
+          <span class="es"><code>3</code> es distinto de <code>1</code> a propósito: encontrar diferencias no es fallar. «La base ya no es lo que dice el archivo» y «no se pudo hacer la comparación» son respuestas diferentes, y un job nocturno no debería tener que leer el mensaje para distinguirlas.</span>
+          <span class="en"><code>3</code> is separate from <code>1</code> on purpose: finding drift is not failing. "The database is no longer what the archive says" and "the comparison could not be made" are different answers, and a nightly job should not have to read the message to tell them apart.</span>
         </div>
       </div>
     </div>
@@ -414,25 +419,26 @@ footer b{color:var(--tx)}
 <!-- 2 INSTALL -->
 <section id="install">
   <div class="head"><span class="n">02</span><h2><span class="es">Instalación</span><span class="en">Install</span></h2></div>
-  <p class="sub es">Como herramienta de .NET, como binario del release, o compilando el código.</p>
-  <p class="sub en">As a .NET tool, as a release binary, or from source.</p>
+  <p class="sub es">Como herramienta de .NET desde nuget.org, como ejecutable del release de GitHub, o compilando el código.</p>
+  <p class="sub en">As a .NET tool from nuget.org, as the executable in the GitHub release, or from source.</p>
 
   <div class="grid">
     <div class="card">
-      <h3><span class="es">Herramienta .NET o binario</span><span class="en">.NET tool or binary</span></h3>
-      <div class="cmd"><pre><code><span class="c"># <span class="es">herramienta global</span><span class="en">global tool</span></span>
+      <h3><span class="es">Herramienta .NET o ejecutable</span><span class="en">.NET tool or executable</span></h3>
+      <div class="cmd"><pre><code><span class="c"># <span class="es">herramienta global; necesita .NET 9</span><span class="en">global tool; needs .NET 9</span></span>
 <span class="k">dotnet</span> tool install <span class="o">-g</span> <span class="v">PeopleWorks.SqlArchive.Cli</span>
 <span class="k">sqlarchive</span> <span class="o">--version</span>
 
-<span class="c"># <span class="es">o el ejecutable del release</span><span class="en">or the release executable</span></span>
+<span class="c"># <span class="es">o sqlarchive-win-x64.zip del release, descomprimido</span><span class="en">or sqlarchive-win-x64.zip from the release, unzipped</span></span>
 <span class="k">.\sqlarchive.exe</span> <span class="o">--version</span></code></pre></div>
-      <div class="warn a">
-        <svg viewBox="0 0 16 16"><path d="M6.46 1.14a1.75 1.75 0 0 1 3.08 0l5.25 9.44A1.75 1.75 0 0 1 13.25 13.2H2.75a1.75 1.75 0 0 1-1.54-2.62ZM8 5a.75.75 0 0 0-.75.75v2.5a.75.75 0 0 0 1.5 0v-2.5A.75.75 0 0 0 8 5Zm0 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"/></svg>
-        <div>
-          <span class="es">Todavía no hay ni paquete en nuget.org ni release. Hasta la primera etiqueta, compilar el código es la única entrada.</span>
-          <span class="en">There is no package on nuget.org and no release yet. Until the first tag, building from source is the only way in.</span>
-        </div>
-      </div>
+      <p class="es">El paquete es <a href="https://www.nuget.org/packages/PeopleWorks.SqlArchive.Cli">PeopleWorks.SqlArchive.Cli</a>
+        y el comando que instala se llama <code>sqlarchive</code>. El zip del
+        <a href="https://github.com/peopleworks/SqlArchive/releases">release</a> trae un solo
+        ejecutable autocontenido para Windows x64, que no necesita .NET instalado.</p>
+      <p class="en">The package is <a href="https://www.nuget.org/packages/PeopleWorks.SqlArchive.Cli">PeopleWorks.SqlArchive.Cli</a>
+        and the command it installs is <code>sqlarchive</code>. The zip in the
+        <a href="https://github.com/peopleworks/SqlArchive/releases">release</a> holds a single
+        self-contained executable for Windows x64, which needs no .NET installed.</p>
     </div>
 
     <div class="card">
@@ -441,19 +447,534 @@ footer b{color:var(--tx)}
 <span class="k">cd</span> SqlArchive
 <span class="k">dotnet</span> build SqlArchive.sln <span class="o">-c</span> <span class="v">Release</span>
 <span class="k">dotnet</span> run <span class="o">--project</span> src/SqlArchive.Cli <span class="o">--</span> <span class="k">inspect</span> <span class="v">Ventas.sqlarchive</span></code></pre></div>
-      <p class="es">Sólo hace falta el SDK de .NET 9. <code>inspect</code> no toca ningún servidor,
-        así que no hace falta SQL Server para probarlo.</p>
-      <p class="en">The .NET 9 SDK is all it takes. <code>inspect</code> touches no server, so no
-        SQL Server is needed to try it.</p>
+      <p class="es">Hace falta el SDK de .NET 9. <code>inspect</code>, y <code>verify</code> sin
+        <code>--against</code>, leen el archivo y nada más, así que funcionan sin SQL Server;
+        <code>export</code>, <code>import</code> y <code>verify --against</code> necesitan uno.</p>
+      <p class="en">The .NET 9 SDK is all it takes. <code>inspect</code>, and <code>verify</code>
+        without <code>--against</code>, read the archive and nothing else, so they work with no SQL
+        Server; <code>export</code>, <code>import</code> and <code>verify --against</code> need one.</p>
     </div>
   </div>
 </section>
 
-<!-- 3 INSPECT -->
+<!-- 3 SEQUENCE -->
+<section id="sequence">
+  <div class="head"><span class="n">03</span><h2><span class="es">La secuencia habitual</span><span class="en">The usual sequence</span></h2></div>
+  <p class="sub es">Exportar, mirar lo que salió, restaurar, y comprobar que lo restaurado es lo que el archivo dice. Un verbo por paso, y el último es el que convierte «terminó sin errores» en «es la misma base».</p>
+  <p class="sub en">Export, look at what came out, restore, and check that what was restored is what the archive says. One verb per step, and the last one is what turns "it finished without errors" into "it is the same database".</p>
+
+  <div class="card">
+    <div class="cmd"><pre><code><span class="c"># 1 <span class="es">la base, a un archivo</span><span class="en">the database, into an archive</span></span>
+<span class="k">sqlarchive</span> <span class="k">export</span> <span class="o">--source</span> <span class="v">"Server=.;Database=Ventas;Integrated Security=true"</span> <span class="o">--out</span> <span class="v">Ventas.sqlarchive</span>
+
+<span class="c"># 2 <span class="es">qué dice el archivo de sí mismo; no toca el servidor</span><span class="en">what the archive says about itself; touches no server</span></span>
+<span class="k">sqlarchive</span> <span class="k">inspect</span> <span class="v">Ventas.sqlarchive</span>
+
+<span class="c"># 3 <span class="es">la base de destino tiene que existir: import no la crea</span><span class="en">the destination database has to exist: import does not create it</span></span>
+<span class="k">sqlcmd</span> <span class="o">-S</span> <span class="v">.</span> <span class="o">-E</span> <span class="o">-Q</span> <span class="v">"CREATE DATABASE VentasCopia"</span>
+<span class="k">sqlarchive</span> <span class="k">import</span> <span class="v">Ventas.sqlarchive</span> <span class="o">--destination</span> <span class="v">"Server=.;Database=VentasCopia;Integrated Security=true"</span>
+
+<span class="c"># 4 <span class="es">0 coincide · 3 difiere · 1 no se pudo comparar</span><span class="en">0 matches · 3 differs · 1 could not compare</span></span>
+<span class="k">sqlarchive</span> <span class="k">verify</span> <span class="v">Ventas.sqlarchive</span> <span class="o">--against</span> <span class="v">"Server=.;Database=VentasCopia;Integrated Security=true"</span></code></pre></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3><span class="es">Qué deja cada paso</span><span class="en">What each step leaves behind</span></h3>
+      <dl class="kv">
+        <dt>export</dt><dd><span class="es">Un archivo que lleva, por tabla, el conteo y el hash de lo que leyó.</span><span class="en">An archive carrying, per table, the count and the hash of what it read.</span></dd>
+        <dt>inspect</dt><dd><span class="es">Lo que ese archivo afirma: con qué consistencia se leyó, qué tablas, cuántas filas, y si es parcial.</span><span class="en">What that archive claims: the consistency it was read with, which tables, how many rows, and whether it is partial.</span></dd>
+        <dt>import</dt><dd><span class="es">Cada tabla publicada por sí sola, y sólo si lo que llegó coincide con el manifiesto.</span><span class="en">Each table published on its own, and only when what arrived matches the manifest.</span></dd>
+        <dt>verify</dt><dd><span class="es">Un veredicto por tabla, leído otra vez desde el destino.</span><span class="en">A verdict per table, read again from the destination.</span></dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <h3><span class="es">La cadena de conexión</span><span class="en">The connection string</span></h3>
+      <div class="warn d">
+        <svg viewBox="0 0 16 16"><path d="M6.46 1.14a1.75 1.75 0 0 1 3.08 0l5.25 9.44A1.75 1.75 0 0 1 13.25 13.2H2.75a1.75 1.75 0 0 1-1.54-2.62ZM8 5a.75.75 0 0 0-.75.75v2.5a.75.75 0 0 0 1.5 0v-2.5A.75.75 0 0 0 8 5Zm0 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"/></svg>
+        <div>
+          <span class="es"><b>En 0.1.0 sólo se acepta como argumento</b>: <code>--source</code>, <code>--destination</code>, <code>--against</code>. No hay archivo ni variable de entorno. Una contraseña escrita ahí la pueden leer otros procesos de la máquina, y queda en el historial del shell.</span>
+          <span class="en"><b>In 0.1.0 it is only accepted as an argument</b>: <code>--source</code>, <code>--destination</code>, <code>--against</code>. There is no file and no environment variable. A password written there can be read by other processes on the machine, and it stays in shell history.</span>
+        </div>
+      </div>
+      <p class="es">Por eso los ejemplos de esta guía usan <code>Integrated Security=true</code>: sin
+        contraseña no hay nada que filtrar. Pasar la cadena por archivo o por variable está anotado
+        como hueco en <a href="#coming">Lo que viene</a>.</p>
+      <p class="en">That is why the examples in this guide use <code>Integrated Security=true</code>:
+        with no password there is nothing to leak. Passing the string through a file or a variable is
+        recorded as a gap in <a href="#coming">What is coming</a>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 4 EXPORT -->
+<section id="export">
+  <div class="head"><span class="n">04</span><h2><code>export</code></h2></div>
+  <p class="sub es">Lee una base a un archivo: el esquema completo, las filas de cada tabla y, por tabla, el conteo y el hash de los que después dependen <code>import</code> y <code>verify</code>. Por defecto cada tabla se lee por su cuenta; <code>--consistent</code> las lee todas del mismo instante.</p>
+  <p class="sub en">Reads a database into an archive: the full schema, every table's rows and, per table, the count and the hash that <code>import</code> and <code>verify</code> later rely on. By default each table is read on its own; <code>--consistent</code> reads them all from the same instant.</p>
+
+  <div class="card">
+    <h3><span class="es">Cómo se corre</span><span class="en">How to run it</span></h3>
+    <div class="cmd"><pre><code><span class="c"># <span class="es">toda la base, cada tabla por su cuenta</span><span class="en">the whole database, each table on its own</span></span>
+<span class="k">sqlarchive</span> <span class="k">export</span> <span class="o">--source</span> <span class="v">"Server=.;Database=Ventas;Integrated Security=true"</span> <span class="o">--out</span> <span class="v">Ventas.sqlarchive</span>
+
+<span class="c"># <span class="es">todas las tablas del mismo instante, o un rechazo que dice qué falta</span><span class="en">every table from the same instant, or a refusal that says what is missing</span></span>
+<span class="k">sqlarchive</span> <span class="k">export</span> <span class="o">-s</span> <span class="v">"Server=.;Database=Ventas;Integrated Security=true"</span> <span class="o">-o</span> <span class="v">VentasSnap.sqlarchive</span> <span class="o">--consistent</span>
+
+<span class="c"># <span class="es">parcial: un esquema, y de una tabla sólo algunas filas</span><span class="en">partial: one schema, and only some rows of one table</span></span>
+<span class="k">sqlarchive</span> <span class="k">export</span> <span class="o">-s</span> <span class="v">"Server=.;Database=Ventas;Integrated Security=true"</span> <span class="o">-o</span> <span class="v">Pedidos.sqlarchive</span> <span class="o">--table</span> <span class="v">"ventas.*"</span> <span class="o">--where</span> <span class="v">"ventas.Pedido=Total&gt;0"</span></code></pre></div>
+  </div>
+
+  <div class="card">
+    <h3><span class="es">Lo que imprime</span><span class="en">What it prints</span></h3>
+    <div class="cmd"><pre><code><span class="c">── Ventas.sqlarchive ───────────────────────────────────────────────────────────</span>
+<span class="c">Tables</span>        4 tables
+<span class="c">Rows</span>          9,705
+<span class="c">Consistency</span>   <span class="o">per-table</span> - each table read on its own, no shared instant
+<span class="c">File</span>          114.5 KB at Ventas.sqlarchive
+<span class="c">Elapsed</span>       0:02
+- [dbo].[PrecioHistoria] is the history of [dbo].[Precio] and is archived as a
+table of its own, rows and all, so a restore hands versioning a history that
+answers FOR SYSTEM_TIME the way the source did.
+
+<span class="c"># <span class="es">con --consistent cambia una línea</span><span class="en">with --consistent, one line changes</span></span>
+<span class="c">Consistency</span>   <span class="v">snapshot</span> - every table read from the same instant</code></pre></div>
+    <p class="es">La línea <code>Consistency</code> es la primera que conviene leer.
+      <code>per-table</code> quiere decir que dos tablas no tienen por qué ser del mismo instante;
+      si la base recibe escrituras mientras se exporta, <code>--consistent</code> es lo que da uno
+      solo. Con <code>--consistent</code> el modo es <code>snapshot</code> cuando pudo crear un
+      snapshot de base de datos, o <code>snapshot isolation</code> cuando leyó por una sola
+      conexión; si no puede ninguno de los dos, no exporta. Una tabla versionada arrastra su
+      historia como tabla aparte, y el export lo dice.</p>
+    <p class="en">The <code>Consistency</code> line is the first one worth reading.
+      <code>per-table</code> means two tables need not be the same instant; if the database takes
+      writes while it is being exported, <code>--consistent</code> is what gives a single one. With
+      <code>--consistent</code> the mode is <code>snapshot</code> when it could create a database
+      snapshot, or <code>snapshot isolation</code> when it read through a single connection; when it
+      can do neither, it does not export. A system-versioned table brings its history along as a
+      table of its own, and the export says so.</p>
+  </div>
+
+  <div class="card">
+    <h3><span class="es">Opciones</span><span class="en">Options</span></h3>
+    <div class="tbl"><table>
+      <tbody>
+        <tr><td><code>-s, --source &lt;CONNECTION&gt;</code></td><td><span class="es">Cadena de conexión de la base a archivar.</span><span class="en">Connection string of the database to archive.</span></td></tr>
+        <tr><td><code>-o, --out &lt;FILE&gt;</code></td><td><span class="es">El archivo a escribir. La extensión habitual es <code>.sqlarchive</code>; no se exige.</span><span class="en">The archive to write. The conventional extension is <code>.sqlarchive</code>; it is not enforced.</span></td></tr>
+        <tr><td><code>--table &lt;GLOB&gt;</code> · <code>--exclude &lt;GLOB&gt;</code></td><td><span class="es">Tablas por glob <code>esquema.tabla</code>, repetibles. <code>--exclude</code> se aplica después de <code>--table</code>. Por defecto, todas.</span><span class="en">Tables by <code>schema.table</code> glob, repeatable. <code>--exclude</code> is applied after <code>--table</code>. Default: every table.</span></td></tr>
+        <tr><td><code>--where &lt;TABLE=PREDICATE&gt;</code></td><td><span class="es">Sólo las filas de una tabla que cumplen un predicado, como <code>dbo.Order=Total&gt;0</code>. Repetible. Queda escrito en el manifiesto como <code>rowFilter</code>, para que un verify posterior no reporte como diferencia lo que se dejó fuera a propósito.</span><span class="en">Only the rows of one table that match a predicate, as <code>dbo.Order=Total&gt;0</code>. Repeatable. Written into the manifest as that table's <code>rowFilter</code>, so a later verify does not report as a difference what was left out on purpose.</span></td></tr>
+        <tr><td><code>--schema-only</code></td><td><span class="es">El esquema y ninguna fila. Cada tabla queda marcada <code>dataSkipped</code> en el manifiesto.</span><span class="en">The schema and none of the rows. Every table is marked <code>dataSkipped</code> in the manifest.</span></td></tr>
+        <tr><td><code>--consistent</code></td><td><span class="es">Todas las tablas de un mismo instante: primero un snapshot de base de datos, si no una sola conexión con aislamiento SNAPSHOT. Si no hay ninguno de los dos, <b>se niega</b> y dice qué permiso u opción falta; no cae en silencio a tabla por tabla. El modo usado queda en el manifiesto.</span><span class="en">Every table at one point in time: a database snapshot first, else a single connection under SNAPSHOT isolation. If neither is available it <b>refuses</b> and says which permission or setting is missing; it does not quietly fall back to table by table. The mode used is recorded in the manifest.</span></td></tr>
+        <tr><td><code>--maxdop &lt;N&gt;</code></td><td><span class="es">Cuántas unidades se leen a la vez: una tabla entera es una, y cada rango de una tabla partida es otra. Por defecto, el número de procesadores con tope de 8. El snapshot de base conserva el paralelismo; el aislamiento SNAPSHOT lo pierde, porque lee por una sola conexión.</span><span class="en">How many units are read at once: a whole table is one, and each range of a split table is one more. Default: the processor count, capped at 8. A database snapshot keeps this parallelism; SNAPSHOT isolation loses it, because it reads through a single connection.</span></td></tr>
+        <tr><td><code>--range-size &lt;ROWS&gt;</code></td><td><span class="es">Parte una tabla grande en ficheros de más o menos tantas filas, que es lo que permite leerla en paralelo. Sólo donde hay una clave numérica o de fecha por la que partir; una tabla sin ella se lee entera.</span><span class="en">Splits a large table into range files of about this many rows, which is what lets it be read in parallel. Only where there is a numeric or date key to partition by; a table without one is read whole.</span></td></tr>
+        <tr><td><code>--spool &lt;DIR&gt;</code> · <code>--resume</code></td><td><span class="es">Dónde se guarda el export a medias (por defecto, junto a <code>--out</code>), y retomarlo por las tablas que faltan. La huella cubre conexión, filtros y versión de formato: retomar con otros se rechaza, en vez de mezclar dos corridas en un archivo.</span><span class="en">Where the partial export is spooled (default: beside <code>--out</code>), and carrying it on with the tables that are missing. The fingerprint covers connection, filters and format version: resuming with different ones is refused rather than mixing two runs into one archive.</span></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- 5 IMPORT -->
+<section id="import">
+  <div class="head"><span class="n">05</span><h2><code>import</code></h2></div>
+  <p class="sub es">Restaura un archivo en una base que ya existe. Lo que hace depende de lo que encuentra: una base vacía recibe el esquema del archivo; una que ya tiene tablas recibe una migración, que altera donde eso conserva las filas y no borra nada.</p>
+  <p class="sub en">Restores an archive into a database that already exists. What it does depends on what it finds: an empty database gets the archive's schema; one that already holds tables gets a migration, which alters where that keeps the rows and drops nothing.</p>
+
+  <div class="card">
+    <h3><span class="es">Cómo se corre</span><span class="en">How to run it</span></h3>
+    <div class="cmd"><pre><code><span class="c"># <span class="es">la base tiene que existir antes</span><span class="en">the database has to exist first</span></span>
+<span class="k">sqlcmd</span> <span class="o">-S</span> <span class="v">.</span> <span class="o">-E</span> <span class="o">-Q</span> <span class="v">"CREATE DATABASE VentasCopia"</span>
+
+<span class="c"># <span class="es">qué haría, sin escribir nada</span><span class="en">what it would do, writing nothing</span></span>
+<span class="k">sqlarchive</span> <span class="k">import</span> <span class="v">Ventas.sqlarchive</span> <span class="o">--destination</span> <span class="v">"Server=.;Database=VentasCopia;Integrated Security=true"</span> <span class="o">--dry-run</span>
+
+<span class="c"># <span class="es">restaurar</span><span class="en">restore</span></span>
+<span class="k">sqlarchive</span> <span class="k">import</span> <span class="v">Ventas.sqlarchive</span> <span class="o">-d</span> <span class="v">"Server=.;Database=VentasCopia;Integrated Security=true"</span></code></pre></div>
+    <div class="warn a">
+      <svg viewBox="0 0 16 16"><path d="M6.46 1.14a1.75 1.75 0 0 1 3.08 0l5.25 9.44A1.75 1.75 0 0 1 13.25 13.2H2.75a1.75 1.75 0 0 1-1.54-2.62ZM8 5a.75.75 0 0 0-.75.75v2.5a.75.75 0 0 0 1.5 0v-2.5A.75.75 0 0 0 8 5Zm0 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"/></svg>
+      <div>
+        <span class="es"><b>La base de destino tiene que existir.</b> <code>import</code> no hace <code>CREATE DATABASE</code>: contra una base que no está, sale con <code>1</code> y el mensaje del servidor.</span>
+        <span class="en"><b>The destination database has to exist.</b> <code>import</code> does not run <code>CREATE DATABASE</code>: against a database that is not there, it exits <code>1</code> with the server's message.</span>
+      </div>
+    </div>
+    <div class="cmd"><pre><code>Cannot open database "VentasNoExiste" requested by the login. The login failed.</code></pre></div>
+  </div>
+
+  <div class="card">
+    <h3><span class="es">Base vacía: las fases del propio archivo</span><span class="en">Empty database: the archive's own phases</span></h3>
+    <p class="es">Si el destino no tiene tablas, se corren las fases de esquema del archivo alrededor de
+      los datos: tablas desnudas, las filas, y después claves, índices y claves foráneas. Cada tabla
+      se publica por <code>swap</code>. No hace falta orden de carga, porque las claves foráneas no
+      existen mientras se llenan las tablas.</p>
+    <p class="en">If the destination holds no tables, the archive's schema phases are run around the
+      data: bare tables, then the rows, then keys, indexes and foreign keys. Each table is published
+      by <code>swap</code>. No load order is needed, because the foreign keys are not there while the
+      tables are being filled.</p>
+    <div class="cmd"><pre><code><span class="c">── VentasCopia on . ────────────────────────────────────────────────────────────</span>
+<span class="c">Archive</span>   Ventas.sqlarchive - Ventas on PeopleWorksAI
+<span class="c">Mode</span>      migration - the destination is diffed against the archive and altered
+          where that preserves rows
+<span class="c">Schema</span>    44 statements run
+<span class="c">Rows</span>      9,705
+<span class="c">Elapsed</span>   00:00:02
+╭────────────────────────┬───────┬──────┬───────────╮
+│ Table                  │  Rows │ How  │           │
+├────────────────────────┼───────┼──────┼───────────┤
+│ [dbo].[Cliente]        │ 1,200 │ <span class="k">swap</span> │ <span class="v">published</span> │
+│ [dbo].[Precio]         │     3 │ <span class="k">swap</span> │ <span class="v">published</span> │
+│ [dbo].[PrecioHistoria] │     2 │ <span class="k">swap</span> │ <span class="v">published</span> │
+│ [ventas].[Pedido]      │ 8,500 │ <span class="k">swap</span> │ <span class="v">published</span> │
+╰────────────────────────┴───────┴──────┴───────────╯
+- The destination holds no tables, so the archive's own schema phases are run
+around the data - bare tables, then the rows, then the keys, indexes and foreign
+keys. That is the shape the archive was written for, and it is why a restore
+needs no load order: the foreign keys are not there while the tables are being
+filled.
+Restored. 4 tables published, 0 tables not - each with its reason above.</code></pre></div>
+    <p class="es">La línea <code>Mode</code> dice <code>migration</code> también aquí, aunque la ruta
+      fue la de las fases: es un error de texto de 0.1.0, corregido para la próxima versión, donde
+      dice <code>schema and rows</code>. La ruta que se tomó es la que nombra el aviso de abajo.</p>
+    <p class="en">The <code>Mode</code> line says <code>migration</code> here too, although the route
+      was the phases: a wording error in 0.1.0, fixed for the next release, where it reads
+      <code>schema and rows</code>. The route taken is the one the notice underneath names.</p>
+  </div>
+
+  <div class="card">
+    <h3><span class="es">Base con tablas: una migración</span><span class="en">Database with tables: a migration</span></h3>
+    <p class="es">Si el destino ya tiene tablas, su esquema se compara con el del archivo y se altera
+      donde eso conserva las filas. <b>No se borra nada</b>: lo que el destino tiene y el archivo no,
+      se queda. Cada tabla se publica en una transacción propia: por <code>SWITCH</code> donde se
+      puede, y por <code>DELETE</code> e <code>INSERT</code> donde no —una tabla con una clave
+      foránea apagada, o una con columnas <code>GENERATED ALWAYS</code>, como una temporal—, que es lo
+      que muestra la columna <code>How</code>. Las claves foráneas del destino se apagan durante los
+      datos y se revalidan a la vuelta; una tabla temporal pierde su período y lo recupera en esa
+      misma transacción, y su historia se carga con el versionado apagado mientras dura. Donde es
+      <code>INSERT</code>, los triggers del destino se disparan.</p>
+    <p class="en">If the destination already holds tables, its schema is diffed against the archive's
+      and altered where that keeps the rows. <b>Nothing is dropped</b>: whatever the destination has
+      and the archive does not stays. Each table is published in a transaction of its own: by
+      <code>SWITCH</code> where it can be, and by <code>DELETE</code> and <code>INSERT</code> where it
+      cannot — a table with a foreign key switched off, or one with <code>GENERATED ALWAYS</code>
+      columns, such as a temporal table — which is what the <code>How</code> column shows. The
+      destination's foreign keys are switched off for the data phase and re-validated on the way back;
+      a temporal table has its period taken off and put back in that same transaction, and its history
+      is loaded with versioning off for as long as it lasts. Where it is an <code>INSERT</code>, the
+      destination's triggers fire.</p>
+    <div class="cmd"><pre><code><span class="c">── VentasCopia on . ────────────────────────────────────────────────────────────</span>
+<span class="c">Schema</span>    7 statements run
+<span class="c">Rows</span>      9,705
+╭────────────────────────┬───────┬─────────────────────────────────┬───────────╮
+│ Table                  │  Rows │ How                             │           │
+├────────────────────────┼───────┼─────────────────────────────────┼───────────┤
+│ [dbo].[Cliente]        │ 1,200 │ <span class="k">insert</span> (a foreign key of this   │ <span class="v">published</span> │
+│                        │       │ table is switched off, and a    │           │
+│                        │       │ switch needs both sides to      │           │
+│                        │       │ agree)                          │           │
+│ [dbo].[Precio]         │     3 │ <span class="k">insert</span>, with the period taken   │ <span class="v">published</span> │
+│                        │       │ off and put back in the same    │           │
+│                        │       │ transaction (SQL Server refuses │           │
+│                        │       │ a period's own values while it  │           │
+│                        │       │ exists)                         │           │
+│ [dbo].[PrecioHistoria] │     2 │ <span class="k">insert</span>, as the history of [     │ <span class="v">published</span> │
+│                        │       │ dbo].[Precio], with versioning  │           │
+│                        │       │ off for the length of the same  │           │
+│                        │       │ transaction                     │           │
+<span class="c">…</span>
+╰────────────────────────┴───────┴─────────────────────────────────┴───────────╯
+- The destination already holds 3 tables, so this is a migration: 0 object(s)
+created, 1 altered, and nothing dropped. Objects the destination has and the
+archive does not are left alone.</code></pre></div>
+    <p class="es">Antes de correrla, <code>--dry-run</code> hace la misma comparación contra el
+      destino tal como está, dice qué publicaría, y no escribe nada:</p>
+    <p class="en">Before running it, <code>--dry-run</code> makes the same comparison against the
+      destination as it is now, says what it would publish, and writes nothing:</p>
+    <div class="cmd"><pre><code><span class="c">── dry run - what restoring into VentasCopia on . would do ─────────────────────</span>
+<span class="c">Schema</span>    8 statements to run
+<span class="c">Rows</span>      0
+╭────────────────────────┬───────┬─────┬────────────────────╮
+│ Table                  │  Rows │ How │                    │
+├────────────────────────┼───────┼─────┼────────────────────┤
+│ [dbo].[Cliente]        │ 1,200 │     │ <span class="o">would be published</span> │
+│ [dbo].[Precio]         │     3 │     │ <span class="o">would be published</span> │
+│ [dbo].[PrecioHistoria] │     2 │     │ <span class="o">would be published</span> │
+│ [ventas].[Pedido]      │ 8,500 │     │ <span class="o">would be published</span> │
+╰────────────────────────┴───────┴─────┴────────────────────╯
+<span class="c">…</span>
+- 1 foreign key of the destination would be switched off for the data phase and
+put back afterwards: every table here is replaced whole, and SQL Server refuses
+to empty a table another key points at whichever way you empty it. They are
+re-validated on the way back, which is the first moment at which validating them
+means anything - the rows on both sides are the archive's.
+
+Nothing was written. 4 tables would be published; the schema comparison above
+was made against the destination as it is now.</code></pre></div>
+  </div>
+
+  <div class="card">
+    <h3><span class="es">Para una copia exacta, una base vacía</span><span class="en">For an exact copy, an empty database</span></h3>
+    <div class="warn a">
+      <svg viewBox="0 0 16 16"><path d="M6.46 1.14a1.75 1.75 0 0 1 3.08 0l5.25 9.44A1.75 1.75 0 0 1 13.25 13.2H2.75a1.75 1.75 0 0 1-1.54-2.62ZM8 5a.75.75 0 0 0-.75.75v2.5a.75.75 0 0 0 1.5 0v-2.5A.75.75 0 0 0 8 5Zm0 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"/></svg>
+      <div>
+        <span class="es"><b>Una migración deja en paz lo que el archivo no conoce.</b> En la prueba, a la base de destino se le había agregado una columna <code>Telefono</code>: sobrevivió al import, y un <code>verify</code> justo después salió con <code>3</code> nombrándola. Restaurar sobre una base viva no tira lo que otro puso ahí; por eso mismo, una copia exacta se restaura en una base vacía.</span>
+        <span class="en"><b>A migration leaves alone what the archive does not know about.</b> In the test, a column <code>Telefono</code> had been added to the destination: it survived the import, and a <code>verify</code> right after exited <code>3</code> naming it. Restoring over a live database does not throw away what someone else put there; for that very reason, an exact copy is restored into an empty database.</span>
+      </div>
+    </div>
+    <div class="cmd"><pre><code><span class="c">…</span>
+3 tables match, 1 table differ
+
+[dbo].[Cliente]  the database has a column the archive does not: [Telefono]
+                 varchar(20).
+
+Differences found. This run did what it was asked and the two sides do not
+match, so it returns 3 rather than 1, which is what a run that could not make
+the comparison returns.</code></pre></div>
+  </div>
+
+  <div class="warn g">
+    <svg viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm11.78-1.72a.75.75 0 0 0-1.06-1.06L6.75 9.19 5.28 7.72a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0Z"/></svg>
+    <div>
+      <span class="es"><b>La guardia es exacta, y de los dos lados.</b> Las filas leídas del archivo y las que aterrizaron en staging tienen que coincidir, las dos, con el conteo y el hash del manifiesto; si no, esa tabla no se publica. SyncJob adivina con un piso de filas porque no sabe cuántas debería haber; aquí el manifiesto lo dice. Si alguna tabla no se publica, <code>import</code> sale con <code>1</code>.</span>
+      <span class="en"><b>The guard is exact, and on both sides.</b> The rows read out of the archive and the rows that landed in staging must both match the manifest's count and hash, or that table is not published. SyncJob guesses with a row floor because it does not know how many rows there should be; here the manifest says. If any table is not published, <code>import</code> exits <code>1</code>.</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3><span class="es">Un aviso que puede aparecer, y no hace daño</span><span class="en">A note that may appear, and does no harm</span></h3>
+    <p class="es">Con varias tablas en paralelo, SQL Server a veces elige una publicación como víctima
+      de un deadlock, e <code>import</code> la vuelve a correr. Pasó en 2 de 5 imports de este archivo
+      de 4 tablas con el <code>--maxdop</code> por defecto, y en ninguno con <code>--maxdop 1</code>.
+      Una publicación es una transacción, así que el intento que perdió no dejó nada; sólo se
+      reintenta el error 1205, y un número acotado de veces. La causa es que SyncJob.Core 1.0.0 lee
+      el catálogo entero por cada tabla; el arreglo le corresponde a SyncJob.Core 1.1.</p>
+    <p class="en">With several tables in parallel, SQL Server sometimes chooses a publication as a
+      deadlock victim, and <code>import</code> runs it again. It happened in 2 of 5 imports of this
+      4-table archive at the default <code>--maxdop</code>, and in none with <code>--maxdop 1</code>.
+      A publication is one transaction, so the attempt that lost left nothing behind; only error 1205
+      is rerun, and a bounded number of times. The cause is SyncJob.Core 1.0.0 reading the whole
+      catalog for every table; the fix belongs to SyncJob.Core 1.1.</p>
+    <div class="cmd"><pre><code>- SQL Server chose 1 publication as a deadlock victim and each was run again, as
+the server asks: [dbo].[PrecioHistoria]. A publication is one transaction, so
+the attempt that lost left nothing behind. The collision is between one table's
+publication reading the whole catalog - SyncJob.Core 1.0.0's staging factory and
+swap each do, per table - and another's dropping its staging table.</code></pre></div>
+  </div>
+
+  <div class="card">
+    <h3><span class="es">Opciones</span><span class="en">Options</span></h3>
+    <div class="tbl"><table>
+      <tbody>
+        <tr><td><code>&lt;ARCHIVE&gt;</code></td><td><span class="es">El archivo a restaurar.</span><span class="en">The archive to restore.</span></td></tr>
+        <tr><td><code>-d, --destination &lt;CONNECTION&gt;</code></td><td><span class="es">Cadena de conexión de la base donde restaurar. No tiene que estar vacía ni ser nueva, pero tiene que existir.</span><span class="en">Connection string of the database to restore into. It does not have to be empty or new, but it has to exist.</span></td></tr>
+        <tr><td><code>--dry-run</code></td><td><span class="es">Dice qué alteraría y qué publicaría, y no escribe nada. El diff de esquema es real; el destino no se toca.</span><span class="en">Says what it would alter and what it would publish, and writes nothing. The schema diff is real; the destination is not touched.</span></td></tr>
+        <tr><td><code>--schema-only</code></td><td><span class="es">Corre las fases de esquema y se detiene. No lee ninguna fila del archivo.</span><span class="en">Runs the schema phases and stops. No rows are read out of the archive.</span></td></tr>
+        <tr><td><code>--data-only</code></td><td><span class="es">Salta el esquema y publica las filas en un destino que ya tiene la forma correcta. Se rechaza donde la forma no coincide.</span><span class="en">Skips the schema and publishes the rows into a destination that already has the right shape. Refused where the shape does not match.</span></td></tr>
+        <tr><td><code>--table &lt;GLOB&gt;</code> · <code>--exclude &lt;GLOB&gt;</code></td><td><span class="es">Eligen de qué tablas se publican las <b>filas</b>, no el esquema: las fases de esquema corren enteras, así que una tabla dejada fuera se crea igual y queda vacía. El resumen dice cuáles y por qué.</span><span class="en">They choose which tables have their <b>rows</b> published, not the schema: the schema phases run whole, so a table left out is still created, and left empty. The summary says which and why.</span></td></tr>
+        <tr><td><code>--continue-on-error</code></td><td><span class="es">Sigue con las demás tablas cuando una falla. Cada tabla se publica atómicamente por sí sola: las que salieron quedan publicadas y las que fallaron quedan intactas, no a medio cargar.</span><span class="en">Carries on with the remaining tables when one fails. Each table is published atomically by itself: the ones that succeeded stay published and the ones that failed are left untouched, not half loaded.</span></td></tr>
+        <tr><td><code>--maxdop &lt;N&gt;</code></td><td><span class="es">Cuántas tablas se preparan a la vez. Por defecto, el número de procesadores con tope de 8. <code>--maxdop 1</code> evita el aviso de deadlock de arriba.</span><span class="en">How many tables are staged at once. Default: the processor count, capped at 8. <code>--maxdop 1</code> avoids the deadlock note above.</span></td></tr>
+        <tr><td><code>--resume</code> · <code>--work-dir &lt;DIR&gt;</code></td><td><span class="es">Retoma una restauración interrumpida por las tablas que faltan, contra la misma huella que escribe el export. El diario vive en <code>--work-dir</code> (por defecto, junto al archivo) y no guarda filas, sólo qué tablas están hechas.</span><span class="en">Carries on an interrupted restore with the tables that are missing, against the same fingerprint the export writes. The journal lives in <code>--work-dir</code> (default: beside the archive) and holds no rows, only which tables are done.</span></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- 6 VERIFY -->
+<section id="verify">
+  <div class="head"><span class="n">06</span><h2><code>verify</code></h2></div>
+  <p class="sub es">El mismo manifiesto contesta si el archivo sigue siendo lo que dice ser, y si una base (restaurada o viva) sigue siendo lo que el archivo dice. El veredicto nombra la tabla, nunca la fila.</p>
+  <p class="sub en">The same manifest answers whether the archive is still what it says it is, and whether a database, restored or live, still is what the archive says. The verdict names the table, never the row.</p>
+
+  <div class="tbl"><table>
+    <thead><tr>
+      <th><span class="es">Pregunta</span><span class="en">Question</span></th>
+      <th><span class="es">Cómo</span><span class="en">How</span></th>
+    </tr></thead>
+    <tbody>
+      <tr><td><span class="es">¿El archivo está íntegro?</span><span class="en">Is the archive intact?</span></td><td><code>verify Ventas.sqlarchive</code> — <span class="es">los hashes de fichero del manifiesto contra las entradas. No toca ningún servidor.</span><span class="en">the file hashes in the manifest against the entries. It touches no server.</span></td></tr>
+      <tr><td><span class="es">¿El destino restaurado coincide?</span><span class="en">Does the restored destination match?</span></td><td><code>--against &lt;CONNECTION&gt;</code> — <span class="es">integridad, esquema por diff, y por tabla el conteo y el hash del contenido.</span><span class="en">integrity, the schema by diff, and per table the row count and the content hash.</span></td></tr>
+      <tr><td><span class="es">¿Una base viva ha derivado?</span><span class="en">Has a live database drifted?</span></td><td><span class="es">Lo mismo, apuntando a producción desde un job nocturno, con <code>--json</code>. Es el mismo código.</span><span class="en">The same, pointed at production from a nightly job, with <code>--json</code>. It is the same code.</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="card" style="margin-top:14px">
+    <h3><span class="es">Cómo se corre</span><span class="en">How to run it</span></h3>
+    <div class="cmd"><pre><code><span class="c"># <span class="es">el archivo contra sí mismo: no toca ningún servidor</span><span class="en">the archive against itself: touches no server</span></span>
+<span class="k">sqlarchive</span> <span class="k">verify</span> <span class="v">Ventas.sqlarchive</span>
+
+<span class="c"># <span class="es">contra una base</span><span class="en">against a database</span></span>
+<span class="k">sqlarchive</span> <span class="k">verify</span> <span class="v">Ventas.sqlarchive</span> <span class="o">--against</span> <span class="v">"Server=.;Database=VentasCopia;Integrated Security=true"</span>
+
+<span class="c"># <span class="es">para un job: el veredicto también en JSON; se ramifica por el código de salida</span><span class="en">for a job: the verdict as JSON too; branch on the exit code</span></span>
+<span class="k">sqlarchive</span> <span class="k">verify</span> <span class="v">Ventas.sqlarchive</span> <span class="o">-a</span> <span class="v">"Server=.;Database=Ventas;Integrated Security=true"</span> <span class="o">--json</span> <span class="v">drift.json</span></code></pre></div>
+  </div>
+
+  <div class="card">
+    <h3><span class="es">Sin <code>--against</code>: el archivo contra sí mismo</span><span class="en">Without <code>--against</code>: the archive against itself</span></h3>
+    <div class="cmd"><pre><code><span class="c">── Ventas.sqlarchive ───────────────────────────────────────────────────────────</span>
+
+<span class="c">Archive</span>         Ventas.sqlarchive
+<span class="c">Compared with</span>   nothing - the archive was checked against itself and no server
+                was touched
+<span class="c">Took</span>            0.0 s
+
+<span class="k">Integrity</span>  <span class="v">16 entries intact</span>
+
+No database was named, so this compared the archive against itself and touched
+no server. That is the question an archive exists to answer: whether this file
+is still what it says it is. Pass --against to compare it with a database.
+
+<span class="v">No differences.</span> Every entry hashes to what the manifest declares.</code></pre></div>
+  </div>
+
+  <div class="card">
+    <h3><span class="es">Con <code>--against</code>: una copia recién restaurada</span><span class="en">With <code>--against</code>: a freshly restored copy</span></h3>
+    <div class="cmd"><pre><code><span class="c">Archive</span>         Ventas.sqlarchive
+<span class="c">Compared with</span>   VentasCopia
+<span class="c">Took</span>            1.3 s
+
+<span class="k">Integrity</span>  <span class="v">16 entries intact</span>
+
+<span class="k">Schema</span>  the two describe the same objects
+        not compared: The name of the database. An archive of one database
+        restored into another with a different name is a correct restore, not
+        drift.
+
+╭────────────────────────┬─────────┬───────┬─────────────╮
+│ Table                  │ Verdict │  Rows │ Content     │
+├────────────────────────┼─────────┼───────┼─────────────┤
+│ [dbo].[Cliente]        │ <span class="v">matches</span> │ 1,200 │ 8a4617bb... │
+│ [dbo].[Precio]         │ <span class="v">matches</span> │     3 │ 226d7abe... │
+│ [dbo].[PrecioHistoria] │ <span class="v">matches</span> │     2 │ 0b72d44f... │
+│ [ventas].[Pedido]      │ <span class="v">matches</span> │ 8,500 │ 6cac98e8... │
+╰────────────────────────┴─────────┴───────┴─────────────╯
+4 tables match
+
+<span class="v">No differences.</span> VentasCopia is what this archive says it is.</code></pre></div>
+    <p class="es">El nombre de la base no se compara, a propósito: restaurar <code>Ventas</code> en
+      <code>VentasCopia</code> es una restauración correcta, no una deriva.</p>
+    <p class="en">The database name is deliberately not compared: restoring <code>Ventas</code> into
+      <code>VentasCopia</code> is a correct restore, not drift.</p>
+  </div>
+
+  <div class="card">
+    <h3><span class="es">La misma copia, después de tocarla</span><span class="en">The same copy, after it was touched</span></h3>
+    <p class="es">En la copia: un <code>UPDATE</code> del <code>Email</code> de 30 clientes, un
+      <code>DELETE</code> de 10 pedidos, y una columna <code>Telefono</code> agregada. Sale con
+      <code>3</code>.</p>
+    <p class="en">On the copy: an <code>UPDATE</code> of 30 customers' <code>Email</code>, a
+      <code>DELETE</code> of 10 orders, and an added column <code>Telefono</code>. It exits
+      <code>3</code>.</p>
+    <div class="cmd"><pre><code><span class="c">Archive</span>         Ventas.sqlarchive
+<span class="c">Compared with</span>   VentasCopia
+<span class="c">Took</span>            0.5 s
+
+<span class="k">Integrity</span>  <span class="v">16 entries intact</span>
+
+<span class="k">Schema</span>
+        <span class="o">1 object different on the two sides: [dbo].[Cliente]</span>
+        not compared: The name of the database. An archive of one database
+        restored into another with a different name is a correct restore, not
+        drift.
+
+╭───────────────────────┬──────────┬───────────────┬───────────────────────────╮
+│ Table                 │ Verdict  │          Rows │ Content                   │
+├───────────────────────┼──────────┼───────────────┼───────────────────────────┤
+│ [dbo].[Cliente]       │ <span class="o">schema</span>   │         1,200 │ 8a4617bb... -&gt;            │
+│                       │          │               │ 61d73c51...               │
+│ [dbo].[Precio]        │ <span class="v">matches</span>  │             3 │ 226d7abe...               │
+│ [dbo].[               │ <span class="v">matches</span>  │             2 │ 0b72d44f...               │
+│ PrecioHistoria]       │          │               │                           │
+│ [ventas].[Pedido]     │ <span class="o">row</span>      │     8,500 -&gt;  │ 6cac98e8... -&gt;            │
+│                       │ <span class="o">count</span>    │         8,490 │ 32922344...               │
+╰───────────────────────┴──────────┴───────────────┴───────────────────────────╯
+2 tables match, 2 tables differ
+
+[dbo].[Cliente]    the database has a column the archive does not: [Telefono]
+                   varchar(20).
+                   1,200 rows on both sides, and the content differs.
+[ventas].[Pedido]  the archive declares 8,500 rows and the database holds 8,490.
+
+<span class="o">Differences found.</span> This run did what it was asked and the two sides do not
+match, so it returns 3 rather than 1, which is what a run that could not make
+the comparison returns.
+The same verdict, as JSON, is in drift.json.</code></pre></div>
+    <p class="es"><code>1,200 rows on both sides, and the content differs</code> es el caso que un
+      conteo no ve: los 30 <code>UPDATE</code> dejaron la misma cantidad de filas, y el hash del
+      contenido es lo que cambió. La lista de abajo da cada diferencia de cada tabla; la columna
+      <code>Verdict</code> muestra una.</p>
+    <p class="en"><code>1,200 rows on both sides, and the content differs</code> is the case a count
+      cannot see: the 30 <code>UPDATE</code>s left the same number of rows, and the content hash is
+      what changed. The list underneath gives every difference of every table; the
+      <code>Verdict</code> column shows one.</p>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3><span class="es">Los veredictos</span><span class="en">The verdicts</span></h3>
+      <dl class="kv">
+        <dt>matches</dt><dd><span class="es">Mismo esquema, mismas filas, mismo contenido.</span><span class="en">Same schema, same rows, same content.</span></dd>
+        <dt>schema</dt><dd><span class="es">La tabla está en los dos lados, con distinta forma.</span><span class="en">Both sides have the table, shaped differently.</span></dd>
+        <dt>row count</dt><dd><span class="es">Distinto número de filas.</span><span class="en">A different number of rows.</span></dd>
+        <dt>content</dt><dd><span class="es">El mismo número de filas con otros valores: lo que un conteo no ve.</span><span class="en">The same number of rows holding other values: what a count cannot see.</span></dd>
+        <dt>missing · extra</dt><dd><span class="es">La tabla está sólo en el archivo, o sólo en la base.</span><span class="en">The table is only in the archive, or only in the database.</span></dd>
+        <dt>cannot say</dt><dd><span class="es">El manifiesto no puede responder por ella: las filas no se archivaron a propósito, o no hay hash. Ni diferencia ni coincidencia.</span><span class="en">The manifest cannot answer for it: the rows were deliberately not archived, or there is no hash. Neither a difference nor a match.</span></dd>
+        <dt>not compared</dt><dd><span class="es">Dejada fuera por un glob o por <code>--schema-only</code>.</span><span class="en">Left out by a glob or by <code>--schema-only</code>.</span></dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <h3><span class="es"><code>--json drift.json</code>, recortado</span><span class="en"><code>--json drift.json</code>, trimmed</span></h3>
+      <div class="cmd"><pre><code>{
+  <span class="k">"archive"</span>: <span class="v">"Ventas.sqlarchive"</span>,
+  <span class="k">"database"</span>: <span class="v">"VentasCopia"</span>,
+  <span class="c">…</span>
+  <span class="k">"tables"</span>: [
+    <span class="c">…</span>
+    {
+      <span class="k">"schema"</span>: <span class="v">"ventas"</span>,
+      <span class="k">"name"</span>: <span class="v">"Pedido"</span>,
+      <span class="k">"outcome"</span>: <span class="o">"rowCountDiffers"</span>,
+      <span class="k">"archiveRows"</span>: 8500,
+      <span class="k">"databaseRows"</span>: 8490,
+      <span class="k">"archiveHash"</span>: <span class="v">"6cac98e8625768a5…"</span>,
+      <span class="k">"databaseHash"</span>: <span class="v">"32922344ae4b62e4…"</span>,
+      <span class="k">"differences"</span>: [
+        <span class="v">"the archive declares 8,500 rows and the database holds 8,490."</span>
+      ]
+    }
+  ],
+  <span class="k">"matching"</span>: 2,
+  <span class="k">"differing"</span>: 2,
+  <span class="k">"unverifiable"</span>: 0,
+  <span class="k">"hasDifferences"</span>: <span class="o">true</span>
+}</code></pre></div>
+      <p class="es">El informe legible sigue saliendo por consola. Un job ramifica por el código de
+        salida y abre el JSON cuando es <code>3</code>.</p>
+      <p class="en">The readable report still goes to the console. A job branches on the exit code and
+        opens the JSON when it is <code>3</code>.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3><span class="es">Opciones</span><span class="en">Options</span></h3>
+    <div class="tbl"><table>
+      <tbody>
+        <tr><td><code>&lt;ARCHIVE&gt;</code></td><td><span class="es">El archivo a verificar: el lado de la comparación que es un fichero.</span><span class="en">The archive to verify: the side of the comparison that is a file.</span></td></tr>
+        <tr><td><code>-a, --against &lt;CONNECTION&gt;</code></td><td><span class="es">Compara con una base viva: el esquema por diff, y por tabla el conteo y el hash del contenido. Sin ella sólo se comprueba la integridad del archivo, y no se toca ningún servidor.</span><span class="en">Compares with a live database: the schema by diff, and per table the row count and the content hash. Without it only the archive's own integrity is checked, and no server is touched.</span></td></tr>
+        <tr><td><code>--table &lt;GLOB&gt;</code> · <code>--exclude &lt;GLOB&gt;</code></td><td><span class="es">Sólo las tablas que coinciden, o dejar fuera las que coinciden, como <code>esquema.tabla</code>. Repetibles; <code>--exclude</code> se aplica después de <code>--table</code>.</span><span class="en">Only the tables that match, or leave out the ones that match, as <code>schema.table</code>. Repeatable; <code>--exclude</code> is applied after <code>--table</code>.</span></td></tr>
+        <tr><td><code>--schema-only</code></td><td><span class="es">Compara el esquema y se detiene. No lee ninguna tabla de ningún lado.</span><span class="en">Compares the schema and stops. No table is read on either side.</span></td></tr>
+        <tr><td><code>--json &lt;FILE&gt;</code></td><td><span class="es">Escribe el veredicto también como JSON, para que lo lea un build. El informe legible sigue saliendo por consola.</span><span class="en">Writes the verdict as JSON as well, for a build to read. The readable report still goes to the console.</span></td></tr>
+        <tr><td><code>--maxdop &lt;N&gt;</code></td><td><span class="es">Cuántas tablas se leen a la vez. Por defecto, el número de procesadores.</span><span class="en">How many tables are read at once. Default: the processor count.</span></td></tr>
+        <tr><td><code>--timeout &lt;SECONDS&gt;</code></td><td><span class="es">Timeout de lectura de una tabla. <code>0</code>, el valor por defecto, es sin límite: verify lee tablas enteras, y un reloj es la forma equivocada de notar una lenta.</span><span class="en">Command timeout for reading a table. <code>0</code>, the default, is no limit: verify reads whole tables, and a clock is the wrong way to notice a slow one.</span></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- 7 INSPECT -->
 <section id="inspect">
-  <div class="head"><span class="n">03</span><h2><code>inspect</code></h2></div>
-  <p class="sub es">El verbo que funciona. Lee lo que el archivo dice de sí mismo y no descomprime los datos, así que es igual de rápido con cien gigabytes que con uno.</p>
-  <p class="sub en">The verb that works. It reads what the archive says about itself and never unpacks the data, so it is as fast on a hundred gigabytes as on one.</p>
+  <div class="head"><span class="n">07</span><h2><code>inspect</code></h2></div>
+  <p class="sub es">Lee lo que el archivo dice de sí mismo y no descomprime los datos, así que es igual de rápido con cien gigabytes que con uno. No toca ningún servidor.</p>
+  <p class="sub en">Reads what the archive says about itself and never unpacks the data, so it is as fast on a hundred gigabytes as on one. It touches no server.</p>
 
   <div class="grid">
     <div class="card">
@@ -492,47 +1013,54 @@ footer b{color:var(--tx)}
 
   <div class="card">
     <h3><span class="es">Lo que imprime</span><span class="en">What it prints</span></h3>
-    <div class="cmd"><pre><code><span class="c">── Ventas.sqlarchive ─────────────────────────────────────────────────</span>
-
-<span class="o">╭─this archive is partial─────────────────────────────────────────────╮</span>
-<span class="o">│</span> Some of what it describes it does not contain: 1 table carrying a   <span class="o">│</span>
-<span class="o">│</span> row filter and 1 table archived with no rows at all. The manifest   <span class="o">│</span>
-<span class="o">│</span> records both, so a verify knows the missing rows are absent on      <span class="o">│</span>
-<span class="o">│</span> purpose and does not report them as drift.                          <span class="o">│</span>
-<span class="o">╰─────────────────────────────────────────────────────────────────────╯</span>
+    <div class="cmd"><pre><code><span class="c">── Ventas.sqlarchive ───────────────────────────────────────────────────────────</span>
 
 <span class="c">Format</span>        sqlarchive, version 1
 <span class="c">Written by</span>    SqlArchive 0.1.0
-<span class="c">Created</span>       2026-09-07 22:30:00 +00:00
-<span class="c">Consistency</span>   <span class="v">snapshot</span> - read from a database snapshot, so every table
-              is the same instant
-<span class="c">Server</span>        SQL2022 / Developer Edition (64-bit) / 16.0.4165.4
+<span class="c">Created</span>       2026-09-12 22:56:37 +00:00
+<span class="c">Consistency</span>   <span class="o">per-table</span> - each table read on its own, so two tables need not be
+              the same instant
+<span class="c">Server</span>        PeopleWorksAI / Enterprise Developer Edition (64-bit) /
+              17.0.1000.7
 <span class="c">Database</span>      Ventas / SQL_Latin1_General_CP1_CI_AS
+<span class="c">File</span>          114.5 KB on disk
 
-<span class="k">Schema</span>  2 schemas
-        2 tables, 1 stored procedure, 1 view
+<span class="k">Schema</span>  1 schema
+        4 tables, 1 view
 
-╭──────────────────┬──────┬─────────────────────┬───────┬─────────────╮
-│ Table            │ Rows │ Row hash            │ Files │ Notes       │
-├──────────────────┼──────┼─────────────────────┼───────┼─────────────┤
-│ [audit].[Log]    │    - │ no data             │     0 │ <span class="o">schema only</span> │
-│ [dbo].[Customer] │    3 │ <span class="v">94eb66adebdc91df</span>... │     1 │             │
-│ [dbo].[Order]    │    2 │ <span class="v">3d5e6705ae893fcd</span>... │     1 │ <span class="o">filtered</span>    │
-╰──────────────────┴──────┴─────────────────────┴───────┴─────────────╯</code></pre></div>
-    <p class="es">Dice en voz alta lo que un archivo parcial tiene que decir: qué tablas llevan
-      filtro, cuáles se archivaron sin filas, y qué columnas el formato no lleva. Un archivo
-      parcial que no dice que lo es hace que un <code>verify</code> reporte diferencias que no son
-      diferencias.</p>
-    <p class="en">It says out loud what a partial archive has to say: which tables carry a filter,
-      which were archived without their rows, and which columns the format does not carry. A
-      partial archive that does not say so makes a <code>verify</code> report differences that are
-      not differences.</p>
+╭────────────────────┬───────┬─────────────────────┬───────┬───────────────────╮
+│ Table              │  Rows │ Row hash            │ Files │ Notes             │
+├────────────────────┼───────┼─────────────────────┼───────┼───────────────────┤
+│ [dbo].[Cliente]    │ 1,200 │ <span class="v">8a4617bb9f7e69d3</span>... │     1 │                   │
+│ [dbo].[Precio]     │     3 │ <span class="v">226d7abe80b37431</span>... │     1 │                   │
+│ [dbo].[            │     2 │ <span class="v">0b72d44ffb077b58</span>... │     1 │ <span class="o">history of [dbo].</span> │
+│ PrecioHistoria]    │       │                     │       │ <span class="o">[Precio]</span>          │
+│ [ventas].[Pedido]  │ 8,500 │ <span class="v">6cac98e8625768a5</span>... │     1 │                   │
+╰────────────────────┴───────┴─────────────────────┴───────┴───────────────────╯
+4 tables, 9,705 rows declared. Row hashes are shown to 16 of 64 characters;
+--json prints the manifest in full.
+
+17 entries, 708.8 KB unpacked, 112.5 KB packed.
+The manifest accounts for every entry exactly once. Whether the bytes still hash
+to what it says is what verify answers.</code></pre></div>
+    <p class="es">Cuando el archivo es parcial —tablas con <code>rowFilter</code>, o archivadas sin
+      filas— lo dice en un recuadro antes que nada: el manifiesto lo registra, así que un
+      <code>verify</code> sabe que esas filas faltan a propósito y no las reporta como deriva, y un
+      <code>import</code> no repone lo que nunca se tomó. También dice qué columnas el formato no
+      lleva. Un archivo parcial que no dice que lo es hace que un <code>verify</code> reporte
+      diferencias que no son diferencias.</p>
+    <p class="en">When the archive is partial — tables carrying a <code>rowFilter</code>, or archived
+      without their rows — it says so in a banner before anything else: the manifest records it, so a
+      <code>verify</code> knows those rows are absent on purpose and does not report them as drift,
+      and an <code>import</code> does not put back what was never taken. It also says which columns
+      the format does not carry. A partial archive that does not say so makes a <code>verify</code>
+      report differences that are not differences.</p>
   </div>
 </section>
 
-<!-- 4 THE ARCHIVE -->
+<!-- 8 THE ARCHIVE -->
 <section id="archive">
-  <div class="head"><span class="n">04</span><h2><span class="es">El archivo</span><span class="en">The archive</span></h2></div>
+  <div class="head"><span class="n">08</span><h2><span class="es">El archivo</span><span class="en">The archive</span></h2></div>
   <p class="sub es">Un zip. El manifiesto va al final porque lleva los hashes de todo lo demás, y eso no cuesta nada: un zip guarda su directorio al final.</p>
   <p class="sub en">A zip. The manifest goes in last because it carries the hashes of everything else, and that costs nothing: a zip keeps its directory at the end.</p>
 
@@ -572,9 +1100,9 @@ footer b{color:var(--tx)}
   </div>
 </section>
 
-<!-- 5 EQUALITY -->
+<!-- 9 EQUALITY -->
 <section id="equality">
-  <div class="head"><span class="n">05</span><h2><span class="es">La igualdad</span><span class="en">Equality</span></h2></div>
+  <div class="head"><span class="n">09</span><h2><span class="es">La igualdad</span><span class="en">Equality</span></h2></div>
   <p class="sub es">La tabla de codificación de valores es normativa: es la definición de que dos filas son la misma fila. No es un detalle del exportador.</p>
   <p class="sub en">The value-encoding table is normative: it is the definition of two rows being the same row. It is not an implementation detail of the exporter.</p>
 
@@ -642,9 +1170,9 @@ footer b{color:var(--tx)}
   </div>
 </section>
 
-<!-- 6 OMITTED -->
+<!-- 10 OMITTED -->
 <section id="omitted">
-  <div class="head"><span class="n">06</span><h2><span class="es">Lo que no viaja</span><span class="en">What is left out</span></h2></div>
+  <div class="head"><span class="n">10</span><h2><span class="es">Lo que no viaja</span><span class="en">What is left out</span></h2></div>
   <p class="sub es">Tres familias de columnas, y por la misma razón las tres: el servidor las escribe él y rechaza que se las escriban.</p>
   <p class="sub en">Three families of column, all for the same reason: the server writes them itself and refuses to be told what they are.</p>
 
@@ -669,11 +1197,12 @@ footer b{color:var(--tx)}
       <span class="en">Carrying them would make <code>verify</code> impossible to pass on a table that has one. The manifest declares them in <code>omittedColumns</code> — and <code>inspect</code> shows them — so their absence is a recorded fact rather than a gap.</span>
     </div>
   </div>
+  <p><span class="es"><b>Tampoco se borra lo que el archivo no conoce.</b> Restaurar sobre una base que ya tiene tablas es una migración: lo que el destino tiene y el archivo no se queda donde está, y un <code>verify</code> posterior lo nombra. Para una copia exacta, restaure en una base vacía. Ver <a href="#import">import</a>.</span><span class="en"><b>Nor is anything dropped that the archive does not know about.</b> Restoring over a database that already holds tables is a migration: whatever the destination has and the archive does not stays where it is, and a later <code>verify</code> names it. For an exact copy, restore into an empty database. See <a href="#import">import</a>.</span></p>
 </section>
 
-<!-- 7 DBDUMPER -->
+<!-- 11 DBDUMPER -->
 <section id="dbdumper">
-  <div class="head"><span class="n">07</span><h2>dbdumper</h2></div>
+  <div class="head"><span class="n">11</span><h2>dbdumper</h2></div>
   <p class="sub es">La forma del archivo y la tabla de codificación se adoptan de <a href="https://github.com/JeePeeTee/dbdumper">dbdumper</a> de JeePee (MIT), con crédito y sin copiar su código.</p>
   <p class="sub en">The archive's shape and its encoding table are adopted from <a href="https://github.com/JeePeeTee/dbdumper">dbdumper</a> by JeePee (MIT), with thanks and with no code copied.</p>
 
@@ -681,12 +1210,16 @@ footer b{color:var(--tx)}
     <div class="card">
       <h3><span class="es">Se lee</span><span class="en">Read</span></h3>
       <div class="cmd"><pre><code><span class="k">sqlarchive</span> <span class="k">inspect</span> <span class="v">Ventas.dbdump.zip</span></code></pre></div>
-      <p class="es">Su <code>manifest.json</code> v1 se mapea a un <code>DatabaseSnapshot</code>,
-        que es un lado del diff. Así <code>verify</code> y la restauración como migración funcionan
-        sobre un archivo que hizo otro, sin un solo caso especial en el resto del código.</p>
-      <p class="en">Its <code>manifest.json</code> v1 maps onto a <code>DatabaseSnapshot</code>,
-        which is one side of the diff. So <code>verify</code> and restore-as-migration work on an
-        archive somebody else made, with no special case anywhere else in the codebase.</p>
+      <p class="es">Su <code>manifest.json</code> v1 se mapea a un <code>DatabaseSnapshot</code>, un
+        lado de un diff, con <code>DbDumperManifestReader</code> de
+        <code>PeopleWorks.SqlArchive.Core</code>. Desde la línea de comandos, en 0.1.0, sólo
+        <code>inspect</code> lo abre: <code>verify</code> e <code>import</code> lo rechazan y dicen
+        por qué.</p>
+      <p class="en">Its <code>manifest.json</code> v1 maps onto a <code>DatabaseSnapshot</code>, one
+        side of a diff, through <code>DbDumperManifestReader</code> in
+        <code>PeopleWorks.SqlArchive.Core</code>. From the command line, in 0.1.0, only
+        <code>inspect</code> opens one: <code>verify</code> and <code>import</code> refuse it and say
+        why.</p>
     </div>
 
     <div class="card">
@@ -694,8 +1227,8 @@ footer b{color:var(--tx)}
       <div class="warn a">
         <svg viewBox="0 0 16 16"><path d="M6.46 1.14a1.75 1.75 0 0 1 3.08 0l5.25 9.44A1.75 1.75 0 0 1 13.25 13.2H2.75a1.75 1.75 0 0 1-1.54-2.62ZM8 5a.75.75 0 0 0-.75.75v2.5a.75.75 0 0 0 1.5 0v-2.5A.75.75 0 0 0 8 5Zm0 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"/></svg>
         <div>
-          <span class="es">Su manifiesto no lleva hash por tabla, así que un <code>verify</code> contra uno suyo compara el esquema y los conteos y ahí se acaba: no puede ver un <code>UPDATE</code>. <code>inspect</code> lo dice en un aviso en vez de disimularlo.</span>
-          <span class="en">Its manifest carries no per-table row hash, so a verify against one compares the schema and the row counts and stops: it cannot see an <code>UPDATE</code>. <code>inspect</code> says so in a banner rather than papering over it.</span>
+          <span class="es">Su manifiesto no lleva hash por tabla, así que nada en él puede probar sus filas: un <code>UPDATE</code> no se notaría. <code>inspect</code> lo dice en un aviso en vez de disimularlo.</span>
+          <span class="en">Its manifest carries no per-table row hash, so nothing in it can prove its rows: an <code>UPDATE</code> would not show. <code>inspect</code> says so in a banner rather than papering over it.</span>
         </div>
       </div>
       <p class="es">Rellenar ese campo con algo calculado de los ficheros de datos haría que un
@@ -708,90 +1241,63 @@ footer b{color:var(--tx)}
   </div>
 </section>
 
-<!-- 8 COMING -->
+<!-- 12 COMING -->
 <section id="coming">
-  <div class="head"><span class="n">08</span><h2><span class="es">Lo que viene</span><span class="en">What is coming</span></h2></div>
-  <p class="sub es">Estas opciones están en <code>--help</code> hoy y los verbos se niegan a correr. Se publican para que la forma del comando se pueda discutir antes de que exista, no para que se use.</p>
-  <p class="sub en">These options are in <code>--help</code> today and the verbs refuse to run. They are published so the shape of the command can be argued with before it exists, not so it can be used.</p>
+  <div class="head"><span class="n">12</span><h2><span class="es">Lo que viene</span><span class="en">What is coming</span></h2></div>
+  <p class="sub es">Dos fases por delante, y unos huecos conocidos de 0.1.0 que conviene saber antes de toparse con ellos.</p>
+  <p class="sub en">Two phases ahead, and a few known gaps in 0.1.0 worth knowing before you run into them.</p>
 
-  <div class="card">
-    <h3><code>export</code> <span class="es">— paquete 2.2</span><span class="en">— work package 2.2</span></h3>
-    <div class="cmd"><pre><code><span class="k">sqlarchive</span> <span class="k">export</span> <span class="o">--source</span> <span class="v">"Server=SQL2022;Database=Ventas;..."</span> <span class="o">--out</span> <span class="v">Ventas.sqlarchive</span></code></pre></div>
-    <div class="tbl"><table>
-      <tbody>
-        <tr><td><code>--table &lt;GLOB&gt;</code> · <code>--exclude &lt;GLOB&gt;</code></td><td><span class="es">Filtro de tablas por glob <code>esquema.tabla</code>, repetible.</span><span class="en">Table filter by <code>schema.table</code> glob, repeatable.</span></td></tr>
-        <tr><td><code>--where &lt;TABLA=PREDICADO&gt;</code></td><td><span class="es">Filas de una tabla. Queda escrito en el manifiesto como <code>rowFilter</code>.</span><span class="en">Rows of one table. Written into the manifest as <code>rowFilter</code>.</span></td></tr>
-        <tr><td><code>--schema-only</code></td><td><span class="es">Esquema sin filas. Cada tabla queda marcada <code>dataSkipped</code>.</span><span class="en">Schema, no rows. Every table is marked <code>dataSkipped</code>.</span></td></tr>
-        <tr><td><code>--consistent</code></td><td><span class="es">Un punto en el tiempo: snapshot de base, si no aislamiento SNAPSHOT, y si no <b>se rechaza</b>. No cae en silencio a tabla por tabla.</span><span class="en">One point in time: a database snapshot, else SNAPSHOT isolation, else it <b>refuses</b>. It does not fall back to table-by-table in silence.</span></td></tr>
-        <tr><td><code>--range-size &lt;N&gt;</code> · <code>--maxdop &lt;N&gt;</code></td><td><span class="es">Rangos por tabla grande y tablas en paralelo.</span><span class="en">Ranges within a big table, and tables in parallel.</span></td></tr>
-        <tr><td><code>--resume</code> · <code>--spool &lt;DIR&gt;</code></td><td><span class="es">Retoma por las tablas que faltan. La huella incluye conexión, filtros y versión de formato: reanudar con otros parámetros es un error, no una mezcla.</span><span class="en">Carries on with the tables that are missing. The fingerprint covers connection, filters and format version: resuming with different ones is an error, not a mixture.</span></td></tr>
-      </tbody>
-    </table></div>
-  </div>
+  <div class="grid">
+    <div class="card">
+      <h3><span class="es">Fase 3 — los verbos como herramientas MCP</span><span class="en">Phase 3 — the verbs as MCP tools</span></h3>
+      <p class="es">Dentro de MSSQLMCPServer, para que un agente de IA pueda exportar, inspeccionar y
+        verificar. <code>import</code> también, con <code>--dry-run</code> por defecto.</p>
+      <p class="en">Inside MSSQLMCPServer, so an AI agent can export, inspect and verify.
+        <code>import</code> too, with dry-run as the default.</p>
+    </div>
 
-  <div class="card">
-    <h3><code>import</code> <span class="es">— paquete 2.3</span><span class="en">— work package 2.3</span></h3>
-    <div class="cmd"><pre><code><span class="k">sqlarchive</span> <span class="k">import</span> <span class="v">Ventas.sqlarchive</span> <span class="o">--destination</span> <span class="v">"Server=SQL2022;Database=VentasCopia;..."</span></code></pre></div>
-    <p class="es">Sin banderas de modo, restaurar sobre una base que ya existe <b>es una migración con
-      diff</b>: se compara el esquema y se hace <code>ALTER</code> donde eso conserva las filas, y
-      cada tabla se publica por staging y <code>SWITCH</code>. Un fallo a mitad deja el destino como
-      estaba.</p>
-    <p class="en">With no mode flag, restoring over a database that already exists <b>is a migration
-      with a diff</b>: the schema is compared and <code>ALTER</code>ed where that preserves rows,
-      and each table is published through staging and a <code>SWITCH</code>. A failure halfway
-      leaves the destination as it was.</p>
-    <div class="tbl"><table>
-      <tbody>
-        <tr><td><code>--schema-only</code> · <code>--data-only</code></td><td><span class="es">Los otros dos modos. Son opuestos y pedirlos juntos se rechaza.</span><span class="en">The other two modes. They are opposites and asking for both is refused.</span></td></tr>
-        <tr><td><code>--dry-run</code></td><td><span class="es">Dice qué alteraría y qué publicaría, y no escribe nada. El diff es real; el destino no se toca.</span><span class="en">Says what it would alter and publish, and writes nothing. The diff is real; the destination is not touched.</span></td></tr>
-        <tr><td><code>--continue-on-error</code></td><td><span class="es">Sigue con las demás tablas. Cada tabla es atómica por sí sola.</span><span class="en">Carries on with the other tables. Each table is atomic by itself.</span></td></tr>
-      </tbody>
-    </table></div>
-    <div class="warn g">
-      <svg viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm11.78-1.72a.75.75 0 0 0-1.06-1.06L6.75 9.19 5.28 7.72a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0Z"/></svg>
-      <div>
-        <span class="es"><b>La guardia aquí es exacta, no heurística.</b> SyncJob adivina con un piso de filas porque no sabe cuántas debería haber; aquí el manifiesto lo dice. Si el conteo y el hash de lo preparado no coinciden, esa tabla no se publica — y la que se detiene es esa tabla, no el restore entero.</span>
-        <span class="en"><b>The guard here is exact, not a heuristic.</b> SyncJob guesses with a row floor because it does not know how many rows there should be; here the manifest says. If the count and hash of what was staged do not match, that table is not published — and it is that table that stops, not the whole restore.</span>
-      </div>
+    <div class="card">
+      <h3><span class="es">Fase 4 — subconjuntos y enmascarado</span><span class="en">Phase 4 — subsets and masking</span></h3>
+      <p class="es">Subconjuntos coherentes con las claves foráneas, y enmascarado de datos. El
+        manifiesto ya lleva <code>rowFilter</code> por tabla, así que no hará falta una versión nueva
+        del formato.</p>
+      <p class="en">Subsets that stay coherent across foreign keys, and data masking. The manifest
+        already carries a <code>rowFilter</code> per table, so this will not need a new format
+        version.</p>
     </div>
   </div>
 
   <div class="card">
-    <h3><code>verify</code> <span class="es">— paquete 2.4</span><span class="en">— work package 2.4</span></h3>
-    <p class="es">El mismo manifiesto contesta tres preguntas distintas:</p>
-    <p class="en">One manifest answers three different questions:</p>
+    <h3><span class="es">Huecos conocidos de 0.1.0</span><span class="en">Known gaps in 0.1.0</span></h3>
     <div class="tbl"><table>
       <thead><tr>
-        <th><span class="es">Pregunta</span><span class="en">Question</span></th>
-        <th><span class="es">Cómo</span><span class="en">How</span></th>
+        <th><span class="es">Hueco</span><span class="en">Gap</span></th>
+        <th><span class="es">Hoy</span><span class="en">Today</span></th>
       </tr></thead>
       <tbody>
-        <tr><td><span class="es">¿El archivo está íntegro?</span><span class="en">Is the archive intact?</span></td><td><code>verify Ventas.sqlarchive</code> — <span class="es">los hashes de fichero contra las entradas. No toca ningún servidor.</span><span class="en">the file hashes against the entries. It touches no server.</span></td></tr>
-        <tr><td><span class="es">¿El destino restaurado coincide?</span><span class="en">Does the restored destination match?</span></td><td><code>--against &lt;CONN&gt;</code> — <span class="es">esquema por diff, y por tabla el conteo y el hash.</span><span class="en">schema by diff, and per table the count and the hash.</span></td></tr>
-        <tr><td><span class="es">¿Una base viva ha derivado?</span><span class="en">Has a live database drifted?</span></td><td><span class="es">Lo mismo, apuntando a producción. Es el uso de auditoría, y es el mismo código.</span><span class="en">The same, pointed at production. That is the audit use, and it is the same code.</span></td></tr>
+        <tr><td><span class="es">Cadena de conexión</span><span class="en">Connection string</span></td><td><span class="es">Sólo por argumento; no hay forma de pasarla por archivo ni por variable de entorno. Mientras tanto, <code>Integrated Security=true</code>. Ver <a href="#sequence">La secuencia habitual</a>.</span><span class="en">Argument only; there is no way to pass it through a file or an environment variable. In the meantime, <code>Integrated Security=true</code>. See <a href="#sequence">The usual sequence</a>.</span></td></tr>
+        <tr><td><span class="es">Identity restaurada</span><span class="en">Restored identity</span></td><td><span class="es">Sigue desde el id más alto que hay en la tabla, no desde el contador que tenía el origen.</span><span class="en">It continues from the highest id in the table, not from the counter the source had.</span></td></tr>
+        <tr><td><span class="es">Deadlock en import paralelo</span><span class="en">Deadlock in a parallel import</span></td><td><span class="es">La publicación se vuelve a correr y no deja nada a medias; el arreglo de raíz le corresponde a SyncJob.Core 1.1. Ver <a href="#import">import</a>.</span><span class="en">The publication is run again and leaves nothing half done; the root fix belongs to SyncJob.Core 1.1. See <a href="#import">import</a>.</span></td></tr>
       </tbody>
     </table></div>
-    <p class="es">El veredicto por tabla dice <b>qué</b> difiere: el esquema, el número de filas, o el
-      contenido con el mismo número de filas — que es el caso que un conteo no ve y el que más
-      importa.</p>
-    <p class="en">The verdict per table says <b>what</b> differs: the schema, the row count, or the
-      content with the same row count — which is the case a count cannot see, and the one that
-      matters most.</p>
   </div>
 </section>
 
-<!-- 9 CHEAT -->
+<!-- 13 CHEAT -->
 <section id="cheat">
-  <div class="head"><span class="n">09</span><h2><span class="es">Chuleta</span><span class="en">Cheat sheet</span></h2></div>
-  <p class="sub es">Todo lo que se puede correr hoy cabe en una tarjeta.</p>
-  <p class="sub en">Everything that runs today fits on one card.</p>
+  <div class="head"><span class="n">13</span><h2><span class="es">Chuleta</span><span class="en">Cheat sheet</span></h2></div>
+  <p class="sub es">Los cuatro verbos en dos tarjetas. Donde dice <code>"..."</code> va una cadena de conexión, como <code>"Server=.;Database=Ventas;Integrated Security=true"</code>.</p>
+  <p class="sub en">The four verbs on two cards. Where it says <code>"..."</code>, a connection string goes, such as <code>"Server=.;Database=Ventas;Integrated Security=true"</code>.</p>
 
   <div class="grid">
     <div class="card">
-      <h3><span class="es">Funciona</span><span class="en">Works</span></h3>
-      <div class="cmd"><pre><code><span class="k">sqlarchive</span> <span class="o">--version</span>
-<span class="k">sqlarchive</span> <span class="o">--help</span>
-<span class="k">sqlarchive</span> <span class="k">inspect</span> <span class="o">--help</span>
+      <h3><span class="es">Archivar y mirar</span><span class="en">Archive and look</span></h3>
+      <div class="cmd"><pre><code><span class="k">sqlarchive</span> <span class="k">export</span> <span class="o">-s</span> <span class="v">"..."</span> <span class="o">-o</span> <span class="v">Ventas.sqlarchive</span>
+<span class="k">sqlarchive</span> <span class="k">export</span> <span class="o">-s</span> <span class="v">"..."</span> <span class="o">-o</span> <span class="v">Ventas.sqlarchive</span> <span class="o">--consistent</span>
+<span class="k">sqlarchive</span> <span class="k">export</span> <span class="o">-s</span> <span class="v">"..."</span> <span class="o">-o</span> <span class="v">Esquema.sqlarchive</span> <span class="o">--schema-only</span>
+<span class="k">sqlarchive</span> <span class="k">export</span> <span class="o">-s</span> <span class="v">"..."</span> <span class="o">-o</span> <span class="v">Pedidos.sqlarchive</span> <span class="o">--table</span> <span class="v">"ventas.*"</span>
+<span class="k">sqlarchive</span> <span class="k">export</span> <span class="o">-s</span> <span class="v">"..."</span> <span class="o">-o</span> <span class="v">Pedidos.sqlarchive</span> <span class="o">--where</span> <span class="v">"ventas.Pedido=Total&gt;0"</span>
+<span class="k">sqlarchive</span> <span class="k">export</span> <span class="o">-s</span> <span class="v">"..."</span> <span class="o">-o</span> <span class="v">Ventas.sqlarchive</span> <span class="o">--resume</span>
 
 <span class="k">sqlarchive</span> <span class="k">inspect</span> <span class="v">Ventas.sqlarchive</span>
 <span class="k">sqlarchive</span> <span class="k">inspect</span> <span class="v">Ventas.sqlarchive</span> <span class="o">--entries</span>
@@ -801,16 +1307,21 @@ footer b{color:var(--tx)}
     </div>
 
     <div class="card">
-      <h3><span class="es">Todavía no</span><span class="en">Not yet</span></h3>
-      <div class="cmd"><pre><code><span class="c"># <span class="es">se niegan, con código de salida 2</span><span class="en">these refuse, with exit code 2</span></span>
-<span class="k">sqlarchive</span> <span class="k">export</span> <span class="o">--source</span> <span class="v">...</span> <span class="o">--out</span> <span class="v">...</span>
-<span class="k">sqlarchive</span> <span class="k">import</span> <span class="v">...</span> <span class="o">--destination</span> <span class="v">...</span>
-<span class="k">sqlarchive</span> <span class="k">verify</span> <span class="v">...</span>
+      <h3><span class="es">Restaurar y comprobar</span><span class="en">Restore and check</span></h3>
+      <div class="cmd"><pre><code><span class="k">sqlarchive</span> <span class="k">import</span> <span class="v">Ventas.sqlarchive</span> <span class="o">-d</span> <span class="v">"..."</span> <span class="o">--dry-run</span>
+<span class="k">sqlarchive</span> <span class="k">import</span> <span class="v">Ventas.sqlarchive</span> <span class="o">-d</span> <span class="v">"..."</span>
+<span class="k">sqlarchive</span> <span class="k">import</span> <span class="v">Ventas.sqlarchive</span> <span class="o">-d</span> <span class="v">"..."</span> <span class="o">--schema-only</span>
+<span class="k">sqlarchive</span> <span class="k">import</span> <span class="v">Ventas.sqlarchive</span> <span class="o">-d</span> <span class="v">"..."</span> <span class="o">--data-only</span>
+<span class="k">sqlarchive</span> <span class="k">import</span> <span class="v">Ventas.sqlarchive</span> <span class="o">-d</span> <span class="v">"..."</span> <span class="o">--maxdop</span> <span class="v">1</span>
+<span class="k">sqlarchive</span> <span class="k">import</span> <span class="v">Ventas.sqlarchive</span> <span class="o">-d</span> <span class="v">"..."</span> <span class="o">--resume</span>
 
-<span class="c"># <span class="es">su ayuda sí sirve, y es la especificación</span><span class="en">their help does work, and is the spec</span></span>
-<span class="k">sqlarchive</span> <span class="k">export</span> <span class="o">--help</span>
-<span class="k">sqlarchive</span> <span class="k">import</span> <span class="o">--help</span>
-<span class="k">sqlarchive</span> <span class="k">verify</span> <span class="o">--help</span></code></pre></div>
+<span class="k">sqlarchive</span> <span class="k">verify</span> <span class="v">Ventas.sqlarchive</span>
+<span class="k">sqlarchive</span> <span class="k">verify</span> <span class="v">Ventas.sqlarchive</span> <span class="o">-a</span> <span class="v">"..."</span>
+<span class="k">sqlarchive</span> <span class="k">verify</span> <span class="v">Ventas.sqlarchive</span> <span class="o">-a</span> <span class="v">"..."</span> <span class="o">--json</span> <span class="v">drift.json</span>
+
+<span class="c"># <span class="es">salida: 0 bien · 1 no pudo · 3 verify encontró diferencias</span><span class="en">exit: 0 done · 1 could not · 3 verify found differences</span></span>
+<span class="k">sqlarchive</span> <span class="o">--version</span>
+<span class="k">sqlarchive</span> &lt;<span class="es">verbo</span><span class="en">verb</span>&gt; <span class="o">--help</span></code></pre></div>
     </div>
   </div>
 </section>
