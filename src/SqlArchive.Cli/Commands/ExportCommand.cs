@@ -159,7 +159,9 @@ public sealed class ExportCommand : AsyncCommand<ExportCommand.Settings>
         }
         catch(DbException failure)
         {
-            AnsiConsole.MarkupLine($"[red]Could not read '{Escape(settings.Source)}': {Escape(failure.Message)}[/]");
+            // The database and the server, never --source itself: it carries the password.
+            AnsiConsole.MarkupLine(
+                $"[red]Could not read {Escape(ConnectionText.Describe(settings.Source, "the source"))}: {Escape(failure.Message)}[/]");
             return ExitCodes.Failed;
         }
 

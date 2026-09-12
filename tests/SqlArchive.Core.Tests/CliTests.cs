@@ -355,6 +355,31 @@ public sealed class CliTests : IDisposable
         Assert.Contains(ArchiveFormat.ManifestEntry, Flatten(output), StringComparison.Ordinal);
     }
 
+    // ---------------------------------------------------------------- export, failing
+
+    /// <summary>
+    /// A source that cannot be reached is reported by database and server, never by the
+    /// connection string: 0.1.0 printed --source back whole, password included, into the
+    /// console a CI log captures. Port 1 on the loopback refuses at once, so this needs no
+    /// server and does not wait for one.
+    /// </summary>
+    [Fact]
+    public void AnExportThatCannotConnectNeverPrintsThePassword()
+    {
+        const string password = "NotThisOne-7f3";
+
+        var (code, output) = Run(
+            "export",
+            "--source", $"Server=127.0.0.1,1;Database=Ventas;User Id=sa;Password={password};Connect Timeout=1;ConnectRetryCount=0",
+            "--out", Path.Combine(_directory, "unreachable.sqlarchive"));
+
+        var flattened = Flatten(output);
+
+        Assert.Equal(ExitCodes.Failed, code);
+        Assert.DoesNotContain(password, output, StringComparison.Ordinal);
+        Assert.Contains("Could not read Ventas on 127.0.0.1,1", flattened, StringComparison.Ordinal);
+    }
+
     // ---------------------------------------------------------------- helpers
 
     /// <summary>

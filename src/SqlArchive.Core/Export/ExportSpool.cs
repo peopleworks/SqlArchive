@@ -72,7 +72,7 @@ public sealed class ExportSpool
             {
                 throw new ExportException(
                     $"'{directory}' is not empty and was not left behind by an export - it has no " +
-                    "fingerprint.json. Point --work-dir somewhere else; the export would have deleted " +
+                    "fingerprint.json. Point --spool somewhere else; the export would have deleted " +
                     "everything in it.");
             }
 

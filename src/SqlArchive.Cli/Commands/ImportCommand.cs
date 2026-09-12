@@ -311,22 +311,16 @@ public sealed class ImportCommand : AsyncCommand<ImportCommand.Settings>
     {
         ImportMode.SchemaOnly => "schema only [dim]- the phases, and not a row[/]",
         ImportMode.DataOnly => "data only [dim]- the rows, into a shape that was already there[/]",
-        _ => "migration [dim]- the destination is diffed against the archive and altered where that preserves rows[/]"
+        // Not "migration": the mode does not know the route. An empty destination gets the
+        // archive's own phases and one with tables gets a diff, and the first notice below
+        // says which of the two this run took - the heading claiming a migration above a
+        // notice saying the phases ran was one line contradicting the next.
+        _ => "schema and rows [dim]- the notes below say which route: the archive's own phases into a database with no tables, or a diff over one that has them[/]"
     };
 
     /// <summary>The destination's database name, for the heading. Never the whole connection string, which carries a password.</summary>
-    private static string Database(string connectionString)
-    {
-        try
-        {
-            var builder = new SqlConnectionStringBuilder(connectionString);
-            return $"{builder.InitialCatalog} on {builder.DataSource}";
-        }
-        catch(ArgumentException)
-        {
-            return "the destination";
-        }
-    }
+    private static string Database(string connectionString) =>
+        ConnectionText.Describe(connectionString, "the destination");
 
     private static void Row(Grid grid, string label, string value) =>
         grid.AddRow($"[dim]{label}[/]", value);
