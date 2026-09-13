@@ -84,7 +84,7 @@ jobs:
       # ninguna version empaquetada: el push "tiene exito", no publica nada, y el
       # release queda anunciando una version que no esta en NuGet.
       #
-      # Aqui los DOS paquetes comparten la version (0.1.0) y se mueven juntos, asi
+      # Aqui los DOS paquetes comparten la version (0.1.1) y se mueven juntos, asi
       # que la etiqueta tiene que corresponder a los dos. Si algun dia divergen
       # -como en SyncJob, donde el Core se estabilizo y el CLI siguio moviendose-,
       # esta lista se queda solo con PeopleWorks.SqlArchive.Cli: el CLI es el

@@ -43,7 +43,7 @@ public sealed class CliTests : IDisposable
         var (code, output) = Run("--version");
 
         Assert.Equal(0, code);
-        Assert.Contains("0.1.0", output, StringComparison.Ordinal);
+        Assert.Contains("0.1.1", output, StringComparison.Ordinal);
     }
 
     /// <summary>

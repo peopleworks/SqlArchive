@@ -33,11 +33,11 @@ command. Until indirection exists:
   in the process arguments while the command runs, so anything that can list processes on
   that runner can read it.
 
-**A defect in 0.1.0, fixed for the next release:** when `export` cannot connect to or read
+**A defect in 0.1.0, fixed in 0.1.1:** when `export` cannot connect to or read
 the source, its error message quotes the `--source` string back in full, password included.
 `import` and `verify` print only the driver's message. On 0.1.0, treat the console output and
 any log of a failed export as containing the connection string — and a password that went
-into one as exposed.
+into one as exposed. Upgrade to 0.1.1.
 
 ## What SqlArchive writes
 

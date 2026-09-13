@@ -27,7 +27,7 @@
 
 ## What works today
 
-SqlArchive **0.1.0** is on nuget.org, and all four verbs work. The round trip — export a
+SqlArchive **0.1.1** is on nuget.org, and all four verbs work. The round trip — export a
 database, restore it into an empty one, verify the two match with no differences at all —
 runs against a real SQL Server in CI and by hand before every release.
 
@@ -146,8 +146,8 @@ filled.
 Restored. 4 tables published, 0 tables not - each with its reason above.
 ```
 
-The `Mode` line says *migration* on this route too — a wording slip in 0.1.0, fixed for the
-next release, where it reads *schema and rows*. The notice under the table names the route
+The `Mode` line says *migration* on this route too — a wording slip in 0.1.0, fixed in
+0.1.1, where it reads *schema and rows*. The notice under the table names the route
 that actually ran.
 
 **3. Prove the copy is the archive.** Exit code `0`.
