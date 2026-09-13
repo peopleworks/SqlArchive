@@ -138,7 +138,7 @@ that argument is no longer available.
 
 `PeopleWorks.SqlArchive.Core` is a published library. `EnablePackageValidation` compares
 it with the baseline version named in `src/SqlArchive.Core/SqlArchive.Core.csproj` —
-0.1.0 today — and a public member removed or changed fails `dotnet pack`, which CI runs on
+0.1.1 today — and a public member removed or changed fails `dotnet pack`, which CI runs on
 every pull request. To check before pushing:
 
 ```bash
