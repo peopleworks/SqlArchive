@@ -24,7 +24,7 @@
          decision the check exists to force. After each release, move it to the
          version just published. -->
     <EnablePackageValidation>true</EnablePackageValidation>
-    <PackageValidationBaselineVersion>0.1.0</PackageValidationBaselineVersion>
+    <PackageValidationBaselineVersion>0.1.1</PackageValidationBaselineVersion>
     <Description>Reads and writes the SqlArchive format: a manifest carrying a full schema snapshot and a per-table content hash, phased SQL, and one JSONL file per table. The engine behind exporting a SQL Server database to a readable archive, restoring it as a migration, and verifying the two match.</Description>
     <Authors>Pedro Hernández (PeopleWorks)</Authors>
     <Company>PeopleWorks</Company>
