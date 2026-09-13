@@ -9,7 +9,7 @@
     <!-- A doc comment is for what is not obvious. Requiring one on every public
          member buys filler on CreatedAt and teaches contributors to write it. -->
     <NoWarn>$(NoWarn);CS1591</NoWarn>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
 
     <!-- Every published version from here on is compared with the one before it at
          `dotnet pack`, which CI runs on every pull request, and anything removed or

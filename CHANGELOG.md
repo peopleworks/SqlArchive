@@ -6,7 +6,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 `PeopleWorks.SqlArchive.Core` may still change between minor versions; the archive format is
 versioned separately, by `formatVersion` in every manifest.
 
-## [Unreleased]
+## [0.1.1] - 2026-09-12
 
 ### Fixed
 
@@ -92,5 +92,6 @@ a memory-optimized table cannot be restored into a fresh database; `--table` on 
 rows, not schema; a restored identity continues from the highest current id rather than the
 source's counter; and the verdict names the table that changed, never the row.
 
-[Unreleased]: https://github.com/peopleworks/SqlArchive/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/peopleworks/SqlArchive/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/peopleworks/SqlArchive/releases/tag/v0.1.1
 [0.1.0]: https://github.com/peopleworks/SqlArchive/releases/tag/v0.1.0

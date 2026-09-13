@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SqlArchive Pocket Guide</title>
-<meta name="description" content="Pocket guide for PeopleWorks SqlArchive 0.1.0 - export a SQL Server database to a readable archive, inspect it, restore it as a migration, and verify with a per-table hash that two databases match.">
+<meta name="description" content="Pocket guide for PeopleWorks SqlArchive 0.1.1 - export a SQL Server database to a readable archive, inspect it, restore it as a migration, and verify with a per-table hash that two databases match.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230B1220'/><g fill='none' stroke='%2322D3EE' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><rect x='7' y='7' width='18' height='18' rx='3'/><path d='M7 13h18M13 10h6M13 19h6'/></g></svg>">
 <style>
 :root{
@@ -328,11 +328,11 @@ footer b{color:var(--tx)}
   <div class="note">
     <svg viewBox="0 0 16 16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm9 3a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Z"/></svg>
     <div>
-      <span class="es"><b>SqlArchive 0.1.0 está publicado.</b> Los cuatro verbos funcionan:
+      <span class="es"><b>SqlArchive 0.1.1 está publicado.</b> Los cuatro verbos funcionan:
         <code>export</code>, <code>import</code>, <code>verify</code> e <code>inspect</code>. Está
         en nuget.org como <code>PeopleWorks.SqlArchive.Cli</code> y, como un solo ejecutable, en el
         release de GitHub. Ver <a href="#state">Estado</a>.</span>
-      <span class="en"><b>SqlArchive 0.1.0 is published.</b> All four verbs work:
+      <span class="en"><b>SqlArchive 0.1.1 is published.</b> All four verbs work:
         <code>export</code>, <code>import</code>, <code>verify</code> and <code>inspect</code>. It is
         on nuget.org as <code>PeopleWorks.SqlArchive.Cli</code> and, as a single executable, in the
         GitHub release. See <a href="#state">Status</a>.</span>
@@ -632,10 +632,10 @@ needs no load order: the foreign keys are not there while the tables are being
 filled.
 Restored. 4 tables published, 0 tables not - each with its reason above.</code></pre></div>
     <p class="es">La línea <code>Mode</code> dice <code>migration</code> también aquí, aunque la ruta
-      fue la de las fases: es un error de texto de 0.1.0, corregido para la próxima versión, donde
+      fue la de las fases: es un error de texto de 0.1.0, corregido en 0.1.1, donde
       dice <code>schema and rows</code>. La ruta que se tomó es la que nombra el aviso de abajo.</p>
     <p class="en">The <code>Mode</code> line says <code>migration</code> here too, although the route
-      was the phases: a wording error in 0.1.0, fixed for the next release, where it reads
+      was the phases: a wording error in 0.1.0, fixed in 0.1.1, where it reads
       <code>schema and rows</code>. The route taken is the one the notice underneath names.</p>
   </div>
 
